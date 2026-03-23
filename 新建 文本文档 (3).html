@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>核心创作终端</title>
+    <style>
+        :root { --bg-body: #f5f5f7; --bg-sidebar: #ffffff; --bg-container: #ffffff; --border-color: #e5e5ea; --text-main: #1d1d1f; --text-secondary: #86868b; --bg-input: #f5f5f7; --bg-hover: #f2f2f7; --bg-user-msg: #007AFF; --text-user-msg: #ffffff; --bg-bot-msg: #f2f2f7; --text-bot-msg: #1d1d1f; --highlight-color: #ff9500; --overlay-bg: rgba(0,0,0,0.5); --shen-color: #007AFF; --danger-color: #ff3b30; }
+        body.dark-theme { --bg-body: #000000; --bg-sidebar: #1c1c1e; --bg-container: #1c1c1e; --border-color: #38383a; --text-main: #f5f5f7; --text-secondary: #98989d; --bg-input: #2c2c2e; --bg-hover: #3a3a3c; --bg-user-msg: #0a84ff; --bg-bot-msg: #2c2c2e; --shen-color: #0a84ff; --danger-color: #ff453a; }
+        body { font-family: -apple-system, sans-serif; background: var(--bg-body); color: var(--text-main); display: flex; height: 100vh; margin: 0; transition: 0.3s; overflow: hidden; }
+        
+        .sidebar { width: 280px; background: var(--bg-sidebar); border-right: 1px solid var(--border-color); display: flex; flex-direction: column; padding: 20px 12px; box-sizing: border-box; }
+        .new-chat-btn { background: transparent; border: 1px solid var(--border-color); color: var(--text-main); padding: 10px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; transition: 0.2s; }
+        .new-chat-btn:hover { background: var(--bg-hover); color: var(--bg-user-msg); border-color: var(--bg-user-msg); }
+        
+        .storyboard-btn { background: var(--bg-input); border: 1px solid var(--border-color); color: var(--text-main); padding: 10px 14px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; font-weight: 600; font-size: 0.95rem; margin-top: 8px; margin-bottom: 10px; }
+        .storyboard-btn:hover { background: var(--bg-hover); border-color: var(--highlight-color); color: var(--highlight-color); }
+        .storyboard-btn.active { background: var(--bg-user-msg); border-color: var(--bg-user-msg); color: white; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3); }
+
+        .sidebar-tabs { display: flex; background: var(--bg-input); padding: 4px; border-radius: 10px; margin-bottom: 10px; }
+        .tab-btn { flex: 1; text-align: center; padding: 6px 0; border-radius: 6px; cursor: pointer; font-size: 0.85rem; color: var(--text-secondary); border: none; background: transparent; transition: 0.2s; }
+        .tab-btn.active { background: var(--bg-container); color: var(--text-main); box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
+        
+        .chat-list { flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+        .chat-item { padding: 10px 12px; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; transition: 0.2s; }
+        .chat-item:hover, .chat-item.active { background: var(--bg-hover); }
+        .chat-title { font-size: 0.9rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; display: flex; align-items: center; gap: 6px; }
+        .chat-actions { display: none; gap: 6px; }
+        .chat-item:hover .chat-actions { display: flex; }
+        .action-btn { background: none; border: none; cursor: pointer; font-size: 1rem; color: var(--text-secondary); transition: 0.2s; padding: 2px; }
+        .action-btn:hover { color: var(--text-main); transform: scale(1.1); }
+        
+        .main-content { flex: 1; display: flex; flex-direction: column; background: var(--bg-container); position: relative; }
+        .header { padding: 16px 24px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border-color); }
+        .header-title-container { display: flex; align-items: center; gap: 8px; }
+        
+        .header-main-text { font-size: 1.1rem; font-weight: 600; cursor: pointer; padding: 4px 8px; border-radius: 6px; transition: 0.2s; margin-left: -8px; }
+        .header-main-text:hover { background: var(--bg-hover); color: var(--highlight-color); }
+        .header-edit-icon { font-size: 0.9rem; margin-left: 4px; opacity: 0.5; }
+        
+        .header-sub-text { font-size: 0.72rem; color: var(--text-secondary); opacity: 0.5; margin-left: 6px;}
+        .nav-btn { background: none; border: 1px solid var(--border-color); padding: 5px 12px; border-radius: 12px; font-size: 0.82rem; cursor: pointer; transition: 0.2s; color: var(--text-main); }
+        .nav-btn:hover { background: var(--bg-hover); border-color: var(--bg-user-msg); }
+        
+        .back-hub-btn { background: rgba(0, 122, 255, 0.1); border: 1px solid var(--shen-color); color: var(--shen-color); padding: 5px 12px; border-radius: 12px; font-size: 0.85rem; cursor: pointer; transition: 0.2s; font-weight: 600; display: none; }
+        .back-hub-btn:hover { background: var(--shen-color); color: white; }
+        body.dark-theme .back-hub-btn { background: rgba(10, 132, 255, 0.15); }
+        
+        .chat-box { flex: 1; padding: 24px; overflow-y: auto; display: flex; flex-direction: column; gap: 18px; scroll-behavior: smooth; }
+        
+        .message { max-width: 85%; padding: 16px 20px; border-radius: 18px; font-size: 0.96rem; line-height: 1.6; word-wrap: break-word; display: flex; flex-direction: column; }
+        .user-msg { background: var(--bg-user-msg); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .bot-msg { background: var(--bg-bot-msg); color: var(--text-main); align-self: flex-start; border-bottom-left-radius: 4px; }
+        
+        .msg-content { white-space: pre-wrap; word-wrap: break-word; }
+        
+        .collapsed-text { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; position: relative; }
+        .collapsed-text::after { content: ""; position: absolute; bottom: 0; left: 0; width: 100%; height: 40px; background: linear-gradient(to bottom, transparent, var(--bg-bot-msg)); pointer-events: none; }
+        .user-msg .collapsed-text::after { background: linear-gradient(to bottom, transparent, var(--bg-user-msg)); }
+        
+        .msg-actions { display: flex; gap: 8px; margin-top: 12px; padding-top: 10px; justify-content: flex-end; border-top: 1px dashed rgba(128, 128, 128, 0.3); }
+        .user-msg .msg-actions { border-top-color: rgba(255, 255, 255, 0.3); }
+        .bot-msg .msg-actions { border-top-color: rgba(0, 0, 0, 0.1); }
+        body.dark-theme .bot-msg .msg-actions { border-top-color: rgba(255, 255, 255, 0.1); }
+
+        .msg-action-btn { background: transparent; border: none; color: inherit; opacity: 0.7; font-size: 0.8rem; cursor: pointer; transition: 0.2s; padding: 4px 8px; border-radius: 6px; font-weight: 600; display: flex; align-items: center; gap: 4px; }
+        .msg-action-btn:hover { background: rgba(128, 128, 128, 0.2); opacity: 1; }
+        .delete-action:hover { color: var(--danger-color); opacity: 1; }
+
+        .input-section { padding: 16px 24px; display: flex; gap: 12px; border-top: 1px solid var(--border-color); align-items: center; transition: 0.3s; }
+        textarea { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-main); resize: none; outline: none; height: 100px; max-height: 150px; font-family: monospace; }
+        .inline-model-select { padding: 0 10px; height: 44px; border-radius: 12px; border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-main); outline: none; cursor: pointer; font-size: 0.9rem; flex-shrink: 0; transition: 0.2s; align-self: flex-end;}
+        .inline-model-select:focus { border-color: var(--bg-user-msg); }
+
+        .hub-container { display: flex; flex-direction: column; align-items: center; padding-top: 8vh; height: 100%; box-sizing: border-box; animation: pop 0.3s ease; }
+        .hub-icon-big { width: 64px; height: 64px; background: transparent; color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 40px; margin-bottom: 24px; }
+        .hub-title { font-size: 28px; font-weight: 500; margin-bottom: 40px; letter-spacing: 1px; }
+        .hub-new-btn { background: var(--bg-user-msg); color: white; padding: 12px 32px; border-radius: 24px; border: none; cursor: pointer; font-size: 1rem; margin-bottom: 40px; transition: 0.2s; font-weight: 600; box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3);}
+        .hub-new-btn:hover { background: #0056b3; transform: translateY(-2px); }
+        .hub-recent-section { width: 100%; max-width: 500px; display: flex; flex-direction: column; gap: 8px; }
+        .hub-list-title { font-size: 0.9rem; color: var(--text-secondary); margin-bottom: 12px; padding-left: 4px; }
+        .hub-item { display: flex; align-items: center; gap: 16px; padding: 14px 20px; background: transparent; border-radius: 12px; cursor: pointer; transition: 0.2s; border: 1px solid transparent; }
+        .hub-item:hover { background: var(--bg-hover); border-color: var(--border-color); }
+        .hub-item-icon { width: 28px; height: 28px; background: transparent; color: white; border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 18px;}
+        .hub-item-title { flex: 1; font-size: 1.05rem; color: var(--text-main); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .hub-item-actions { display: none; gap: 8px; }
+        .hub-item:hover .hub-item-actions { display: flex; }
+        .hub-item-actions button { background: var(--bg-container); border: 1px solid var(--border-color); cursor: pointer; font-size: 0.9rem; color: var(--text-secondary); transition: 0.2s; padding: 6px; border-radius: 6px; }
+        .hub-item-actions button:hover { color: var(--text-main); border-color: var(--text-secondary); }
+
+        .modal-overlay { display: none; position: fixed; inset: 0; background: var(--overlay-bg); z-index: 1000; backdrop-filter: blur(8px); justify-content: center; align-items: center; }
+        .modal-overlay.show { display: flex; }
+        .modal-box { background: var(--bg-container); border-radius: 24px; padding: 32px; width: 90%; max-width: 480px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); animation: pop 0.3s ease; }
+        @keyframes pop { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
+        .modal-btn { padding: 10px 20px; border-radius: 10px; border: none; cursor: pointer; font-weight: 600; transition: 0.2s; }
+        .btn-confirm { background: var(--bg-user-msg); color: white; }
+        .btn-confirm:hover { background: #0056b3; }
+        .setting-row { margin-bottom: 15px; }
+        .setting-row label { display: block; font-size: 0.85rem; margin-bottom: 5px; color: var(--text-secondary); font-weight: bold; }
+        .setting-row input, .setting-row select { width: 100%; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-main); box-sizing: border-box; outline: none; }
+        .setting-row select:focus, .setting-row input:focus { border-color: var(--bg-user-msg); }
+        .status-del { opacity: 0.3; text-decoration: line-through; }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <button class="new-chat-btn" onclick="createNewChat()">＋ 新建闲聊</button>
+    
+    <div class="storyboard-btn" id="storyboardBtn" onclick="openStoryboardHub()">
+        <span>🎬 剧本转分镜 (九雨)</span>
+        <span>👉</span>
+    </div>
+
+    <div class="sidebar-tabs">
+        <button class="tab-btn active" id="tab-all" onclick="switchTab('all')">全部闲聊</button>
+        <button class="tab-btn" id="tab-fav" onclick="switchTab('fav')">收藏</button>
+    </div>
+    <div class="chat-list" id="chatList"></div>
+</div>
+
+<div class="main-content">
+    <div class="header">
+        <div class="header-title-container">
+            <button id="backToHubBtn" class="back-hub-btn" onclick="openStoryboardHub()">⬅ 返回面板</button>
+            <span class="header-main-text" id="headerTitle" onclick="renameCurrentChat()" title="点击修改名称">请输入你的内容</span>
+            <span class="header-edit-icon" id="headerEditIcon" onclick="renameCurrentChat()" style="cursor: pointer; display: none;">✏️</span>
+            <span class="header-sub-text">（仅供九雨团队内部使用）</span>
+        </div>
+        <div id="headerActions" style="display: none; gap: 8px;">
+            <button class="nav-btn" id="apiBtn" onclick="openApiModal()" style="display:none; color: #0a84ff;">⚙️ 全局API配置</button>
+            <button class="nav-btn" id="adminBtn" onclick="openAdminPanel()" style="display:none; color: var(--highlight-color);">后台面板</button>
+            <button class="nav-btn" onclick="logout()">退出</button>
+            <button class="action-btn" onclick="toggleTheme()">🌓</button>
+        </div>
+    </div>
+    
+    <div class="key-section" id="keySection" style="padding:20px; display:flex; justify-content:center; gap:10px; border-bottom: 1px solid var(--border-color);">
+        <input type="password" id="secretKey" placeholder="请输入你的内容" style="padding:10px; border-radius:10px; border:1px solid var(--border-color); width:200px;">
+        <button class="modal-btn btn-confirm" onclick="verifyKey()">验证</button>
+    </div>
+    
+    <div class="chat-box" id="chatBox"></div>
+    
+    <div class="input-section" id="inputSection">
+        <textarea id="userInput" placeholder="请输入你的内容"></textarea>
+        <select id="modelSelect" class="inline-model-select" onchange="changeModel()">
+            <option value="fast">⚡ 快速</option>
+            <option value="thinking">🧠 思考</option>
+            <option value="pro">👑 旗舰</option>
+        </select>
+        <button onclick="sendMessage()" style="background:var(--bg-user-msg); color:white; border:none; border-radius:50%; width:44px; height:44px; cursor:pointer; flex-shrink: 0; align-self: flex-end;">↑</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="apiModal">
+    <div class="modal-box">
+        <h3 style="margin-top: 0;">🌐 设置全系统通用 API</h3>
+        <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom: 15px;">您在此配置的通道将对所有团队成员生效，他们无需自己配置即可直接生成。</p>
+        <div class="setting-row">
+            <label>🔌 1. API 来源</label>
+            <select id="apiSource">
+                <option value="gemini">Google 官方直连</option>
+                <option value="geeknow">GeekNow 中转接口</option>
+                <option value="grsai">GRSAI 中转接口</option>
+            </select>
+        </div>
+        <div class="setting-row">
+            <label>🔑 2. API Key</label>
+            <input type="password" id="apiKeyValue" placeholder="请输入系统的公用密钥">
+        </div>
+        <div style="display:flex; gap:10px; margin-top:20px;">
+            <button class="modal-btn btn-confirm" style="flex:1" onclick="saveApiSettings()">保存配置并全员生效</button>
+            <button class="modal-btn" style="flex:1; background:var(--bg-input); color:var(--text-main); border:1px solid var(--border-color);" onclick="closeApiModal()">取消</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="adminModal">
+    <div class="modal-box" style="width: 95%; max-width: 600px;">
+        <h3 style="margin-top: 0;">后台系统管理</h3>
+        <div style="display:flex; gap:10px; margin-bottom:15px;">
+            <input type="text" id="newKeyNote" placeholder="请输入使用者备注 (如: 张三)" style="flex:1; padding:10px; border-radius:8px; border:1px solid var(--border-color);">
+            <button class="modal-btn btn-confirm" onclick="generateNewKey()">生成密钥</button>
+        </div>
+        <div style="max-height:300px; overflow-y:auto; border:1px solid var(--border-color); border-radius:10px;">
+            <table style="width:100%; border-collapse: collapse; text-align: left;">
+                <thead style="background: var(--bg-hover); position: sticky; top: 0;">
+                    <tr>
+                        <th style="padding: 10px; border-bottom: 1px solid var(--border-color);">访问密钥</th>
+                        <th style="padding: 10px; border-bottom: 1px solid var(--border-color);">备注信息</th>
+                        <th style="padding: 10px; border-bottom: 1px solid var(--border-color);">状态操作</th>
+                    </tr>
+                </thead>
+                <tbody id="keyTableBody"></tbody>
+            </table>
+        </div>
+        <button class="modal-btn" onclick="closeAdminPanel()" style="width:100%; margin-top:15px; background:var(--bg-input); color:var(--text-main); border:1px solid var(--border-color);">关闭面板</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="renameModal">
+    <div class="modal-box" style="max-width:320px; text-align: center;">
+        <h3 style="margin-top: 0;">请输入你的内容</h3>
+        <input type="text" id="renameInput" placeholder="请输入你的内容" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--border-color); box-sizing:border-box; margin-bottom:20px;">
+        <div style="display:flex; gap:10px;">
+            <button class="modal-btn" onclick="closeRenameModal()" style="flex:1; background:var(--bg-input); color:var(--text-main); border:1px solid var(--border-color);">取消</button>
+            <button class="modal-btn btn-confirm" onclick="confirmRename()" style="flex:1">保存</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="confirmModal">
+    <div class="modal-box" style="max-width:320px; text-align: center;">
+        <h3 style="margin-top: 0;">请输入你的内容</h3>
+        <p style="color: var(--text-secondary); margin-bottom: 24px;">请输入你的内容</p>
+        <div style="display:flex; gap:10px;">
+            <button class="modal-btn" onclick="closeConfirmModal()" style="flex:1; background:var(--bg-input); color:var(--text-main); border:1px solid var(--border-color);">取消</button>
+            <button class="modal-btn btn-confirm" onclick="executeConfirm()" style="flex:1; background: var(--danger-color);">确认</button>
+        </div>
+    </div>
+</div>
+
+<script>
+    const API_BASE_URL = "https://wuliu.pythonanywhere.com";
+    const HUB_ID = 'STORYBOARD_HUB'; 
+    
+    const storyboardTemplate = `{{前面文案}} = 无\n{{前面分镜2}} = 无\n{{后面分镜2}} = 无\n{{输入文案}} = `;
+    
+    let currentUserKey = null;
+    let chats = [];
+    let currentChatId = null; 
+    let renamingChatId = null; 
+    let currentTab = 'all';
+    let pendingConfirmCallback = null;
+
+    function init() {
+        const k = localStorage.getItem('user_secret_key');
+        if (k) { 
+            document.getElementById('secretKey').value = k; 
+            verifyKey(); 
+        } else {
+            document.getElementById('chatList').innerHTML = '';
+            document.getElementById('chatBox').innerHTML = '';
+            document.getElementById('inputSection').style.display = 'none';
+            document.getElementById('headerEditIcon').style.display = 'none';
+        }
+    }
+
+    async function verifyKey() {
+        const p = document.getElementById('secretKey').value.trim();
+        if(!p) return;
+        try {
+            const res = await fetch(`${API_BASE_URL}/verify`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:p}) });
+            const d = await res.json();
+            if(res.ok) {
+                localStorage.setItem('user_secret_key', p);
+                currentUserKey = p;
+                chats = JSON.parse(localStorage.getItem('chats_' + currentUserKey)) || [];
+                
+                document.getElementById('modelSelect').value = localStorage.getItem('model_type_' + currentUserKey) || 'fast';
+
+                document.getElementById('keySection').style.display = 'none';
+                document.getElementById('headerActions').style.display = 'flex';
+                
+                document.getElementById('adminBtn').style.display = d.is_admin ? 'inline-block' : 'none';
+                document.getElementById('apiBtn').style.display = d.is_admin ? 'inline-block' : 'none';
+                
+                openStoryboardHub();
+            } else { alert(d.error || "请输入你的内容"); }
+        } catch(e) { alert("请输入你的内容"); }
+    }
+
+    function openConfirmModal(callback) {
+        pendingConfirmCallback = callback;
+        document.getElementById('confirmModal').classList.add('show');
+    }
+    
+    function closeConfirmModal() {
+        document.getElementById('confirmModal').classList.remove('show');
+        pendingConfirmCallback = null;
+    }
+    
+    function executeConfirm() {
+        if(pendingConfirmCallback) pendingConfirmCallback();
+        closeConfirmModal();
+    }
+
+    function logout() { 
+        openConfirmModal(() => {
+            localStorage.removeItem('user_secret_key'); 
+            location.reload(); 
+        });
+    }
+
+    function changeModel() {
+        if(currentUserKey) localStorage.setItem('model_type_' + currentUserKey, document.getElementById('modelSelect').value);
+    }
+    
+    async function openApiModal() { 
+        const ak = localStorage.getItem('user_secret_key');
+        try {
+            const res = await fetch(`${API_BASE_URL}/admin/get_config`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak}) });
+            if(res.ok) {
+                const conf = await res.json();
+                document.getElementById('apiSource').value = conf.api_source || 'gemini';
+                document.getElementById('apiKeyValue').value = conf.api_key || '';
+            }
+        } catch(e) { console.log(e); }
+        document.getElementById('apiModal').classList.add('show'); 
+    }
+    
+    function closeApiModal() { document.getElementById('apiModal').classList.remove('show'); }
+    
+    async function saveApiSettings() {
+        const ak = localStorage.getItem('user_secret_key');
+        const src = document.getElementById('apiSource').value;
+        const key = document.getElementById('apiKeyValue').value;
+        try {
+            const res = await fetch(`${API_BASE_URL}/admin/save_config`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak, api_source:src, api_key:key}) });
+            if(res.ok) {
+                alert("✅ 全局 API 配置已保存！\n\n现在团队所有成员在提问时，将直接调用这把密钥，无需他们自己配置。"); 
+                closeApiModal();
+            } else { alert("保存失败：无权限操作！"); }
+        } catch(e) { alert("网络连接失败，请重试！"); }
+    }
+
+    function openStoryboardHub() {
+        currentChatId = HUB_ID;
+        document.getElementById('headerTitle').innerText = "九雨系统控制台";
+        document.getElementById('inputSection').style.display = 'none'; 
+        document.getElementById('backToHubBtn').style.display = 'none';
+        document.getElementById('headerEditIcon').style.display = 'none'; 
+        renderSidebar(); 
+        renderHub();
+    }
+
+    function renderHub() {
+        const box = document.getElementById('chatBox');
+        let html = `
+            <div class="hub-container">
+                <div class="hub-icon-big">🎬</div>
+                <div class="hub-title">剧本转分镜 (九雨)</div>
+                <button class="hub-new-btn" onclick="createNewStoryboard()">＋ 新建分镜项目</button>
+                <div class="hub-recent-section">
+                    <div class="hub-list-title">近期对话</div>
+        `;
+        
+        const sbChats = chats.filter(c => c.isStoryboard).sort((a,b) => b.id - a.id);
+        if (sbChats.length === 0) {
+            html += `<div style="text-align:center; color: var(--text-secondary); padding: 30px;">暂无分镜项目，请点击上方按钮新建。</div>`;
+        } else {
+            sbChats.forEach(c => {
+                html += `
+                    <div class="hub-item" onclick="switchChat('${c.id}')">
+                        <div class="hub-item-icon">🎬</div>
+                        <div class="hub-item-title">${c.title}</div>
+                        <div class="hub-item-actions">
+                            <button onclick="openRenameModal('${c.id}', event)">✏️ 重命名</button>
+                            <button onclick="deleteChat('${c.id}', event)">🗑️ 删除</button>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        html += `</div></div>`;
+        box.innerHTML = html;
+    }
+
+    function createNewStoryboard() {
+        const id = Date.now().toString(); 
+        chats.unshift({id, title:"未命名分镜项目", messages:[], isPinned:false, isFavorite:false, isStoryboard:true}); 
+        saveChats(); 
+        switchChat(id);
+    }
+
+    async function sendMessage() {
+        if(!currentUserKey) return;
+        const k = currentUserKey;
+        const modelType = document.getElementById('modelSelect').value;
+        
+        const input = document.getElementById('userInput');
+        const msg = input.value.trim();
+        const chat = chats.find(c => c.id === currentChatId);
+        if(!msg || !chat) return;
+
+        chat.messages.push({ role:'user', content:msg });
+        
+        if(chat.title.includes("新") || chat.title.includes("未命名")) { 
+            chat.title = msg.substring(0,12); 
+            document.getElementById('headerTitle').innerText = chat.title; 
+        }
+        
+        input.value = ''; renderMessages();
+
+        try {
+            const res = await fetch(`${API_BASE_URL}/chat`, {
+                method:'POST', headers:{'Content-Type':'application/json'},
+                body:JSON.stringify({ password:k, message:msg, history:chat.messages.slice(0,-1), model_type:modelType })
+            });
+            const d = await res.json();
+            
+            if (!res.ok && (d.error === "请联系管理员~" || d.error.includes("系统暂无全局访问通道"))) {
+                 chat.messages.push({ role:'bot', content: d.error });
+                 saveChats(); renderMessages(); renderSidebar();
+                 return;
+            }
+
+            chat.messages.push({ role:'bot', content: d.reply || d.error });
+            saveChats(); renderMessages(); renderSidebar();
+        } catch(e) { 
+            chat.messages.push({ role:'bot', content:"网络连接失败，请重试~" }); 
+            renderMessages(); 
+        }
+    }
+
+    function renderMessages() {
+        const box = document.getElementById('chatBox'); 
+        box.innerHTML = '';
+        const chat = chats.find(c => c.id === currentChatId); 
+        if(!chat) return;
+        
+        chat.messages.forEach((m, index) => {
+            const div = document.createElement('div');
+            div.className = `message ${m.role === 'user' ? 'user-msg' : 'bot-msg'}`;
+            
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'msg-content';
+            contentDiv.textContent = m.content; 
+            
+            const actionBar = document.createElement('div');
+            actionBar.className = 'msg-actions';
+            
+            const isLong = m.content.length > 300 || m.content.split('\n').length > 8;
+            if (isLong) {
+                contentDiv.classList.add('collapsed-text');
+                
+                const toggleBtn = document.createElement('button');
+                toggleBtn.className = 'msg-action-btn';
+                toggleBtn.innerHTML = '🔽 展开内容';
+                toggleBtn.onclick = () => {
+                    const isCollapsed = contentDiv.classList.contains('collapsed-text');
+                    if (isCollapsed) {
+                        contentDiv.classList.remove('collapsed-text');
+                        toggleBtn.innerHTML = '🔼 收起文本';
+                    } else {
+                        contentDiv.classList.add('collapsed-text');
+                        toggleBtn.innerHTML = '🔽 展开内容';
+                        div.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+                    }
+                };
+                actionBar.appendChild(toggleBtn);
+            }
+
+            const copyBtn = document.createElement('button');
+            copyBtn.className = 'msg-action-btn';
+            copyBtn.innerHTML = '📋 一键复制';
+            copyBtn.onclick = () => {
+                navigator.clipboard.writeText(m.content).then(() => {
+                    copyBtn.innerHTML = '✅ 已复制';
+                    setTimeout(() => copyBtn.innerHTML = '📋 一键复制', 2000);
+                });
+            };
+            actionBar.appendChild(copyBtn);
+
+            const delBtn = document.createElement('button');
+            delBtn.className = 'msg-action-btn delete-action';
+            delBtn.innerHTML = '🗑️ 删除';
+            delBtn.onclick = () => {
+                openConfirmModal(() => {
+                    chat.messages.splice(index, 1);
+                    saveChats();
+                    renderMessages(); 
+                });
+            };
+            actionBar.appendChild(delBtn);
+
+            div.appendChild(contentDiv);
+            div.appendChild(actionBar);
+            box.appendChild(div);
+        });
+        
+        box.scrollTop = box.scrollHeight;
+    }
+    
+    function createNewChat() { 
+        const id = Date.now().toString(); 
+        chats.unshift({id, title:"💬 新闲聊", messages:[], isPinned:false, isFavorite:false, isStoryboard:false}); 
+        saveChats(); 
+        switchChat(id); 
+    }
+    
+    function switchChat(id) { 
+        if(id === HUB_ID) { openStoryboardHub(); return; }
+        
+        currentChatId = id; 
+        const c = chats.find(x=>x.id === id); 
+        document.getElementById('headerTitle').innerText = c.title; 
+        document.getElementById('inputSection').style.display = 'flex'; 
+        
+        const backBtn = document.getElementById('backToHubBtn');
+        const input = document.getElementById('userInput');
+        const editIcon = document.getElementById('headerEditIcon');
+        
+        if (c.isStoryboard) {
+            backBtn.style.display = 'inline-block';
+            editIcon.style.display = 'inline-block'; 
+            input.placeholder = "请输入你的剧本......";
+            input.value = ''; 
+        } else {
+            backBtn.style.display = 'none';
+            editIcon.style.display = 'inline-block'; 
+            input.placeholder = "请输入你的内容";
+            input.value = '';
+        }
+        
+        renderSidebar(); 
+        renderMessages(); 
+    }
+    
+    function renderSidebar() {
+        const list = document.getElementById('chatList'); list.innerHTML = '';
+        
+        let display = currentTab === 'fav' 
+            ? chats.filter(c => c.isFavorite && !c.isStoryboard) 
+            : chats.filter(c => !c.isStoryboard);
+        
+        const btn = document.getElementById('storyboardBtn');
+        const isCurrentStoryboard = currentChatId === HUB_ID || chats.find(c=>c.id===currentChatId)?.isStoryboard;
+        btn.classList.toggle('active', isCurrentStoryboard);
+        
+        display.sort((a,b)=>(b.isPinned - a.isPinned) || (b.id - a.id)).forEach(c => {
+            const div = document.createElement('div'); div.className = `chat-item ${c.id === currentChatId ? 'active' : ''}`;
+            div.onclick = () => switchChat(c.id);
+            div.innerHTML = `
+                <span class="chat-title">${c.isPinned?'📌 ':''}💬 ${c.title}</span>
+                <div class="chat-actions">
+                    <button class="action-btn" onclick="togglePin('${c.id}', event)">📍</button>
+                    <button class="action-btn" onclick="toggleFav('${c.id}', event)">${c.isFavorite?'🌟':'⭐'}</button>
+                    <button class="action-btn" onclick="openRenameModal('${c.id}', event)">✏️</button>
+                    <button class="action-btn" onclick="deleteChat('${c.id}', event)">🗑️</button>
+                </div>`;
+            list.appendChild(div);
+        });
+    }
+
+    function saveChats() { 
+        if(currentUserKey) localStorage.setItem('chats_' + currentUserKey, JSON.stringify(chats)); 
+    }
+    
+    function togglePin(id, e) { e.stopPropagation(); const c = chats.find(x=>x.id===id); c.isPinned = !c.isPinned; saveChats(); renderSidebar(); }
+    function toggleFav(id, e) { e.stopPropagation(); const c = chats.find(x=>x.id===id); c.isFavorite = !c.isFavorite; saveChats(); renderSidebar(); }
+    function switchTab(t) { currentTab = t; document.getElementById('tab-all').classList.toggle('active', t==='all'); document.getElementById('tab-fav').classList.toggle('active', t==='fav'); renderSidebar(); }
+    
+    function deleteChat(id, e) { 
+        e.stopPropagation(); 
+        openConfirmModal(() => {
+            chats = chats.filter(x=>x.id!==id); 
+            saveChats();
+            if (currentChatId === HUB_ID) {
+                renderHub(); 
+            } else if (currentChatId === id) {
+                openStoryboardHub(); 
+            } else {
+                renderSidebar();
+            }
+        });
+    }
+    
+    function renameCurrentChat() {
+        if (currentChatId && currentChatId !== HUB_ID) {
+            openRenameModal(currentChatId, new Event('click'));
+        }
+    }
+
+    function openRenameModal(id, e) { e.stopPropagation(); renamingChatId = id; document.getElementById('renameInput').value = chats.find(c => c.id === id).title; document.getElementById('renameModal').classList.add('show'); }
+    function closeRenameModal() { document.getElementById('renameModal').classList.remove('show'); }
+    function confirmRename() { 
+        const v = document.getElementById('renameInput').value.trim(); 
+        if(v) { 
+            const c = chats.find(x=>x.id===renamingChatId); c.title = v; 
+            if(renamingChatId===currentChatId) document.getElementById('headerTitle').innerText=v; 
+            saveChats(); 
+            if(currentChatId === HUB_ID) renderHub(); else renderSidebar();
+        } 
+        closeRenameModal(); 
+    }
+    function toggleTheme() { document.body.classList.toggle('dark-theme'); }
+    
+    async function openAdminPanel() { document.getElementById('adminModal').classList.add('show'); await refreshKeyList(); }
+    function closeAdminPanel() { document.getElementById('adminModal').classList.remove('show'); }
+    
+    function copyAdminKey(text, btn) {
+        navigator.clipboard.writeText(text).then(() => {
+            const originalHTML = btn.innerHTML;
+            btn.innerHTML = '✅';
+            btn.style.color = '#34c759';
+            setTimeout(() => { 
+                btn.innerHTML = originalHTML; 
+                btn.style.color = '';
+            }, 1500);
+        });
+    }
+
+    async function refreshKeyList() {
+        const ak = localStorage.getItem('user_secret_key'); const tb = document.getElementById('keyTableBody'); tb.innerHTML = '';
+        const res = await fetch(`${API_BASE_URL}/admin/list`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak}) });
+        const d = await res.json();
+        for(let k in d.keys) {
+            if(k === ak) continue; const info = d.keys[k]; const tr = document.createElement('tr');
+            if(info.is_deleted) tr.className = 'status-del';
+            tr.innerHTML = `
+                <td style="padding: 10px; border-bottom: 1px solid var(--border-color);">
+                    <div style="display: flex; align-items: center; justify-content: space-between; font-family: monospace; font-size: 0.9rem;">
+                        ${k}
+                        <button class="action-btn" style="margin: 0; padding: 2px 6px; font-size: 0.8rem;" onclick="copyAdminKey('${k}', this)" title="复制密钥">📋</button>
+                    </div>
+                </td>
+                <td style="padding: 10px; border-bottom: 1px solid var(--border-color);">${info.note}</td>
+                <td style="padding: 10px; border-bottom: 1px solid var(--border-color);">
+                    <button class="modal-btn" style="padding:4px 8px; font-size:12px; background:${info.is_deleted?'#34c759':'#ff3b30'}; color:white;" onclick="toggleKeyStatus('${k}')">${info.is_deleted?'恢复':'停用'}</button>
+                </td>`;
+            tb.appendChild(tr);
+        }
+    }
+    
+    async function toggleKeyStatus(t) { const ak = localStorage.getItem('user_secret_key'); await fetch(`${API_BASE_URL}/admin/toggle_delete`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak, target_key:t}) }); await refreshKeyList(); }
+    async function generateNewKey() {
+        const ak = localStorage.getItem('user_secret_key'); const n = document.getElementById('newKeyNote').value.trim();
+        if(!n) return alert("请输入你的内容");
+        await fetch(`${API_BASE_URL}/admin/create`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak, note:n}) });
+        document.getElementById('newKeyNote').value = ''; await refreshKeyList();
+    }
+    init();
+</script>
+</body>
+</html>
