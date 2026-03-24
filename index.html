@@ -51,7 +51,10 @@
     </div>
     
     <div class="key-section" id="keySection">
-        <input type="password" id="secretKey" placeholder="请输入您的密钥" title="输入系统分配的访问密钥">
+        <div class="key-input-wrapper" style="position: relative; display: inline-flex; align-items: center;">
+            <input type="password" id="secretKey" placeholder="请输入您的密钥" title="输入系统分配的访问密钥" style="padding-right: 35px;">
+            <span onclick="clearKeyInput()" style="position: absolute; right: 10px; cursor: pointer; opacity: 0.6; font-size: 1rem;" title="一键删除密钥">❌</span>
+        </div>
         <button class="modal-btn btn-confirm" onclick="verifyKey()" title="验证系统进入权限">验证</button>
     </div>
     
@@ -198,15 +201,22 @@
 <div class="bulk-toolbar" id="bulkToolbar">
     <div style="display:flex; align-items:center; gap:16px;">
         <span id="bulkSelectCount" style="font-weight:bold;">已选择 0 项</span>
-        <button class="nav-btn" style="background: var(--bg-user-msg); color: white; border-color: var(--bg-user-msg);" onclick="executeBulkDownload()">⬇️ 批量下载</button>
-        <button class="nav-btn" id="bulkCategoryBtn" onclick="openBulkCategoryModal()">🗂️ 批量分类</button>
-        <button class="nav-btn" id="bulkDeleteBtn" style="color: var(--danger-color); border-color: var(--danger-color);" onclick="executeBulkDelete()">🗑️ 批量删除</button>
+        <button class="nav-btn" style="background: var(--bg-user-msg); color: white; border-color: var(--bg-user-msg);" onclick="executeBulkDownload()" title="打包下载所选">⬇️ 批量下载</button>
+        <button class="nav-btn" id="bulkCategoryBtn" onclick="openBulkCategoryModal()" title="更改所选项的分类">🗂️ 批量分类</button>
+        <button class="nav-btn" id="bulkDeleteBtn" style="color: var(--danger-color); border-color: var(--danger-color);" onclick="executeBulkDelete()" title="删除所选素材">🗑️ 批量删除</button>
     </div>
-    <button class="nav-btn cancel-btn" onclick="toggleBulkMode()">取消退出</button>
+    <button class="nav-btn cancel-btn" onclick="toggleBulkMode()" title="退出批量操作">取消退出</button>
+</div>
+
+<div class="modal-overlay" id="imageViewerModal" onclick="closeImageViewer()" style="cursor: zoom-out;">
+    <div style="position: relative; max-width: 95%; max-height: 95vh; display: flex; justify-content: center; align-items: center;" onclick="event.stopPropagation()">
+        <canvas id="fullViewCanvas" style="max-width: 100%; max-height: 90vh; pointer-events: none; border-radius: 8px; box-shadow: 0 10px 40px rgba(0,0,0,0.5);" oncontextmenu="return false;" ondragstart="return false;"></canvas>
+        <div style="position: absolute; top: -15px; right: -15px; background: rgba(0,0,0,0.6); color: white; border-radius: 50%; width: 30px; height: 30px; display: flex; align-items: center; justify-content: center; cursor: pointer; font-weight: bold; border: 2px solid white;" onclick="closeImageViewer()" title="关闭预览">×</div>
+    </div>
 </div>
 
 <div id="printArea" style="display: none;"></div>
 
-<script src="app.js"></script>
+<script src="app.js?v=666"></script>
 </body>
 </html>
