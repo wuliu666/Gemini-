@@ -1,0 +1,212 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>核心创作终端</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<div class="mobile-overlay" id="mobileOverlay" onclick="toggleSidebar()"></div>
+<div class="sidebar" id="appSidebar">
+    <div class="sidebar-header">
+        <span style="font-weight: 600; font-size: 1.1rem; color: var(--text-main);">九雨创作台</span>
+        <button class="collapse-btn-top" onclick="toggleSidebar()" title="收起左侧菜单面板">◀</button>
+    </div>
+
+    <button class="new-chat-btn" onclick="createNewChat()" title="新建一个常规AI对话">＋ 新建闲聊</button>
+    <div class="storyboard-btn" id="storyboardBtn" onclick="switchChat(HUB_ID)" title="剧本结构化分镜工作流"><span>🎬 剧本转分镜 (九雨)</span><span>👉</span></div>
+    <div class="storyboard-btn" id="imageGenBtn" onclick="switchChat(IMAGE_GEN_ID)" style="margin-top: 8px;" title="使用AI模型进行图像生成"><span>🎨 AI生图控制台</span><span>👉</span></div>
+    
+    <div class="storyboard-btn" id="teamAssetBtn" onclick="switchChat(TEAM_ASSET_ID)" style="margin-top: 8px;" title="团队共享的高质量模型和提示词基准"><span>📁 团队公共素材库</span><span>👉</span></div>
+    <div class="storyboard-btn" id="personalAssetBtn" onclick="switchChat(PERSONAL_ASSET_ID)" style="margin-top: 8px;" title="仅您自己可见的私人专属模型、素材库"><span>🔒 我的个人素材库</span><span>👉</span></div>
+    <div class="storyboard-btn" id="imageSplitBtn" onclick="switchChat(IMAGE_SPLIT_ID)" style="margin-top: 8px;" title="批量拆分九宫格或四宫格图片"><span>🧩 多宫格拆分</span><span>👉</span></div>
+    
+    <div class="sidebar-tabs">
+        <button class="tab-btn active" id="tab-all" onclick="switchTab('all')" title="显示全部历史记录">全部闲聊</button>
+        <button class="tab-btn" id="tab-fav" onclick="switchTab('fav')" title="仅显示我收藏的记录">收藏</button>
+    </div>
+    
+    <div class="chat-list" id="chatList"></div>
+</div>
+
+<div class="main-content">
+    <div class="header">
+        <div class="header-title-container">
+            <button id="showSidebarBtn" class="show-sidebar-btn" onclick="toggleSidebar()" title="展开侧边栏菜单">☰</button>
+            <button id="backToHubBtn" class="back-hub-btn" onclick="switchChat(HUB_ID)" title="返回主控制台">⬅ 返回面板</button>
+            <span class="header-main-text" id="headerTitle" onclick="renameCurrentChat()" title="点击修改当前标题">请输入您的标题</span>
+            <span class="header-edit-icon" id="headerEditIcon" onclick="renameCurrentChat()" title="重命名当前对话" style="cursor: pointer; display: none;">✏️</span>
+            <button id="exportPdfBtn" class="nav-btn" onclick="exportToPDF()" style="display: none; margin-left: 12px; color: var(--shen-color); border-color: var(--shen-color);" title="将当前剧本/对话导出为标准PDF排版">📄 导出为 PDF/文档</button>
+        </div>
+        <div id="headerActions" style="display: none; gap: 8px;">
+            <button class="nav-btn" id="syncBtn" onclick="syncWithCloud()" title="将本地数据双向同步至云端数据库">☁️ 云同步</button>
+            <button class="nav-btn" id="apiBtn" onclick="openApiModal()" style="display:none; color: #0a84ff;" title="设置全局API通道">⚙️ 全局API配置</button>
+            <button class="nav-btn" id="adminBtn" onclick="openAdminPanel()" style="display:none; color: var(--highlight-color);" title="管理团队人员密钥与系统资源">后台面板</button>
+            <button class="nav-btn" onclick="logout()" title="注销并退出当前密钥">退出</button>
+            <button class="action-btn" onclick="toggleTheme()" title="切换日间/夜间模式">🌓</button>
+        </div>
+    </div>
+    
+    <div class="key-section" id="keySection">
+        <input type="password" id="secretKey" placeholder="请输入您的密钥" title="输入系统分配的访问密钥">
+        <button class="modal-btn btn-confirm" onclick="verifyKey()" title="验证系统进入权限">验证</button>
+    </div>
+    
+    <div class="chat-box" id="chatBox"></div>
+    
+    <div class="input-section" id="inputSection">
+        <textarea id="userInput" placeholder="请输入您的文本内容" title="在上方输入你想说的话"></textarea>
+        <div style="display: flex; flex-direction: column; gap: 8px; flex-shrink: 0;">
+            <select id="apiSourceSelect" class="inline-model-select" style="height: 38px; font-size: 0.85rem;" onchange="onApiSourceChange()" title="选择AI调用通道">
+                <option value="gemini">🌐 Gemini官方</option>
+                <option value="geeknow">🚀 GeekNow中转</option>
+                <option value="grsai">⚡ GRSAI中转</option>
+            </select>
+            <select id="modelSelect" class="inline-model-select" style="height: 38px; font-size: 0.85rem;" onchange="changeModel()" title="选择具体大模型"></select>
+        </div>
+        <button class="send-btn" onclick="sendMessage()" title="发送消息">↑</button>
+    </div>
+
+    <div class="input-section" id="imageGenInputSection" style="display:none; flex-direction:column; align-items: stretch; border-top: 1px solid var(--border-color);">
+        <div class="img-gen-panel" id="imgGenSettingsPanel">
+            <div class="panel-label">选择比例</div>
+            <div class="ratio-row">
+                <button class="ratio-btn" onclick="selectRatio(this, '智能', 1024, 1024)"><div class="ratio-icon r-auto"></div>智能</button>
+                <button class="ratio-btn" onclick="selectRatio(this, '21:9', 2560, 1096)"><div class="ratio-icon r-21-9"></div>21:9</button>
+                <button class="ratio-btn active" onclick="selectRatio(this, '16:9', 2560, 1440)"><div class="ratio-icon r-16-9"></div>16:9</button>
+                <button class="ratio-btn" onclick="selectRatio(this, '3:2', 2160, 1440)"><div class="ratio-icon r-3-2"></div>3:2</button>
+                <button class="ratio-btn" onclick="selectRatio(this, '4:3', 1920, 1440)"><div class="ratio-icon r-4-3"></div>4:3</button>
+                <button class="ratio-btn" onclick="selectRatio(this, '1:1', 1440, 1440)"><div class="ratio-icon r-1-1"></div>1:1</button>
+                <button class="ratio-btn" onclick="selectRatio(this, '3:4', 1440, 1920)"><div class="ratio-icon r-3-4"></div>3:4</button>
+                <button class="ratio-btn" onclick="selectRatio(this, '2:3', 1440, 2160)"><div class="ratio-icon r-2-3"></div>2:3</button>
+                <button class="ratio-btn" onclick="selectRatio(this, '9:16', 1440, 2560)"><div class="ratio-icon r-9-16"></div>9:16</button>
+            </div>
+            <div class="panel-label">选择分辨率</div>
+            <div class="res-row">
+                <button class="res-btn active" onclick="selectRes(this, '高清 2K')">高清 2K</button>
+                <button class="res-btn" onclick="selectRes(this, '超清 4K')">超清 4K ✨</button>
+            </div>
+            <div class="panel-label">尺寸</div>
+            <div class="size-row">
+                <div class="size-box"><span>W</span><input type="number" id="imgWidth" value="2560"></div>
+                <div class="size-link">🔗</div>
+                <div class="size-box"><span>H</span><input type="number" id="imgHeight" value="1440"></div>
+                <div class="size-unit">PX</div>
+            </div>
+        </div>
+        
+        <div id="imgUploadPreviewContainer" style="display: flex; align-items: flex-end; gap: 12px; margin-bottom: 8px;">
+            <div id="imgUploadPreview" style="display: none;"></div>
+        </div>
+
+        <div style="display: flex; gap: 10px; align-items: flex-end; width: 100%;">
+            <label class="img-upload-label" title="上传参考图 (支持 JPG, JPEG, PNG, WEBP)">📷
+                <input type="file" id="imgGenUpload" accept="image/jpeg, image/png, image/webp" style="display:none;" onchange="previewGenImage(this)">
+            </label>
+            <select id="imgGenModelSelect" class="inline-model-select" style="height: 44px; padding: 0 8px;" title="选择生图大模型"></select>
+            
+            <select id="stylePresetSelect" class="inline-model-select" style="height: 44px; padding: 0 8px;" title="风格魔棒：选择专属画风预设">
+                <option value="none">🪄 默认风格</option>
+                <option value="guoman">🗡️ 国漫精绘风</option>
+                <option value="suspense">🌑 现代悬疑压迫感</option>
+                <option value="visual_novel">🌸 二次元视觉小说</option>
+            </select>
+
+            <button id="imgGenSettingsToggle" class="settings-toggle-btn" onclick="toggleImgGenSettings()" title="展开/收起高级比例设置">
+                <div class="ratio-icon r-16-9" id="toggleRatioIcon" style="margin-bottom: 0;"></div>
+                <span id="toggleRatioText">16:9</span><span class="divider">|</span><span id="toggleResText">高清 2K</span>
+            </button>
+            <textarea id="imgGenInput" class="img-gen-textarea" placeholder="请输入生图提示词（使用简体中文）..." title="在此输入画面描述"></textarea>
+            <button class="send-btn" onclick="sendImageGenMessage()" title="发送生图指令">↑</button>
+        </div>
+    </div>
+</div>
+
+<input type="file" id="batchAssetUpload" accept="image/jpeg, image/png, image/webp" multiple style="display:none;" onchange="handleBatchAssetUpload(this)">
+
+<div class="modal-overlay" id="editAssetModal"><div class="modal-box" style="max-width: 500px;"><h3 style="margin-top: 0;">编辑素材属性</h3><div class="setting-row"><label>素材名称</label><input type="text" id="editAssetTitle" placeholder="例如：男主张三默认脸型"></div><div class="setting-row"><label>素材类型</label><select id="editAssetType"><option value="character">👤 角色设定 (脸型/三视图)</option><option value="scene">🏞️ 场景概念</option></select></div><div class="setting-row"><label>提示词/Prompt (建议附带 Seed)</label><textarea id="editAssetPrompt" style="width: 100%; height: 80px; padding: 10px; border-radius: 8px; border: 1px solid var(--border-color); background: var(--bg-input); color: var(--text-main); font-family: monospace; box-sizing: border-box;" placeholder="请输入提示词..."></textarea></div><div style="display:flex; gap:10px; margin-top:20px;"><button class="modal-btn btn-confirm" style="flex:1" onclick="saveAssetEdit()">保存更改</button><button class="modal-btn cancel-btn" style="flex:1;" onclick="closeEditAssetModal()">取消</button></div></div></div>
+<div class="modal-overlay" id="bulkCategoryModal"><div class="modal-box" style="max-width: 400px;"><h3 style="margin-top: 0;">批量修改分类</h3><div class="setting-row"><label>选择新的分类</label><select id="bulkCategorySelect"><option value="character">👤 角色设定 (脸型/三视图)</option><option value="scene">🏞️ 场景概念</option></select></div><div style="display:flex; gap:10px; margin-top:20px;"><button class="modal-btn btn-confirm" style="flex:1" onclick="confirmBulkCategory()">确认修改</button><button class="modal-btn cancel-btn" style="flex:1;" onclick="closeBulkCategoryModal()">取消</button></div></div></div>
+
+<div class="modal-overlay" id="apiModal">
+    <div class="modal-box">
+        <h3 style="margin-top: 0;">🌐 配置系统通道密钥矩阵</h3>
+        <p style="font-size:0.8rem; color:var(--text-secondary); margin-bottom: 15px;">配置各通道的密钥后，成员即可在前端自由切换通道与模型。</p>
+        <div class="setting-row"><label>🔑 Google 官方直连 API Key</label><input type="password" id="geminiKey" placeholder="AIzaSy..."></div>
+        <div class="setting-row"><label>🔑 GeekNow 中转 API Key</label><input type="password" id="geeknowKey" placeholder="sk-..."></div>
+        <div class="setting-row"><label>🔑 GRSAI 中转 API Key</label><input type="password" id="grsaiKey" placeholder="sk-..."></div>
+        <div style="display:flex; gap:10px; margin-top:20px;">
+            <button class="modal-btn btn-confirm" style="flex:1" onclick="saveApiSettings()">永久保存</button>
+            <button class="modal-btn cancel-btn" style="flex:1" onclick="closeApiModal()">取消</button>
+        </div>
+    </div>
+</div>
+
+<div class="modal-overlay" id="renameModal"><div class="modal-box" style="max-width:320px; text-align: center;"><h3 style="margin-top: 0;">修改标题</h3><input type="text" id="renameInput" placeholder="请输入新标题" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--border-color); box-sizing:border-box; margin-bottom:20px;"><div style="display:flex; gap:10px;"><button class="modal-btn cancel-btn" style="flex:1" onclick="closeRenameModal()">取消</button><button class="modal-btn btn-confirm" style="flex:1" onclick="confirmRename()">保存</button></div></div></div>
+<div class="modal-overlay" id="confirmModal"><div class="modal-box" style="max-width:320px; text-align: center;"><h3 style="margin-top: 0;">操作确认</h3><p style="color: var(--text-secondary); margin-bottom: 24px;">您确定要执行此操作吗？</p><div style="display:flex; gap:10px;"><button class="modal-btn cancel-btn" style="flex:1" onclick="closeConfirmModal()">取消</button><button class="modal-btn btn-confirm" style="flex:1; background: var(--danger-color);" onclick="executeConfirm()">确认</button></div></div></div>
+
+<div class="modal-overlay" id="adminModal">
+    <div class="modal-box admin-modal-box">
+        <div class="admin-tabs">
+            <button class="admin-tab-btn active" id="tabBtn-keys" onclick="switchAdminTab('keys')">🔑 密钥与用量</button>
+            <button class="admin-tab-btn" id="tabBtn-models" onclick="switchAdminTab('models')">⚙️ 动态模型</button>
+            <button class="admin-tab-btn" id="tabBtn-logs" onclick="switchAdminTab('logs')">📝 操作日志</button>
+        </div>
+        
+        <div id="adminTab-keys" class="admin-tab-content active"><div style="display:flex; gap:10px; margin-bottom:15px;"><input type="text" id="newKeyNote" placeholder="请输入使用者备注 (如: 张三)" style="flex:1; padding:10px; border-radius:8px; border:1px solid var(--border-color);"><button class="modal-btn btn-confirm" onclick="generateNewKey()">生成密钥</button></div><div style="max-height:350px; overflow-y:auto; border:1px solid var(--border-color); border-radius:10px;"><table style="width:100%; border-collapse: collapse; text-align: left; font-size: 0.9rem;"><thead style="background: var(--bg-hover); position: sticky; top: 0; z-index: 1;"><tr><th style="padding: 10px; border-bottom: 1px solid var(--border-color);">访问密钥</th><th style="padding: 10px; border-bottom: 1px solid var(--border-color);">备注</th><th style="padding: 10px; border-bottom: 1px solid var(--border-color);">已生图 / 额度</th><th style="padding: 10px; border-bottom: 1px solid var(--border-color); width: 170px;">操作</th></tr></thead><tbody id="keyTableBody"></tbody></table></div></div>
+        
+        <div id="adminTab-models" class="admin-tab-content" style="display: none;">
+            <div style="display: flex; gap: 20px;">
+                <div style="flex: 1; border: 1px solid var(--border-color); border-radius: 10px; padding: 12px;">
+                    <h4 style="margin: 0 0 10px 0; display: flex; justify-content: space-between; align-items: center;">
+                        💬 文本大模型配置
+                        <select id="adminApiFilter" style="padding: 4px; border-radius: 6px; border: 1px solid var(--border-color); font-size: 0.8rem;" onchange="renderAdminModels()">
+                            <option value="gemini">Gemini官方</option>
+                            <option value="geeknow">GeekNow中转</option>
+                            <option value="grsai">GRSAI中转</option>
+                        </select>
+                    </h4>
+                    <div id="textModelList" style="margin-bottom: 10px; max-height: 200px; overflow-y: auto;"></div>
+                    <div style="display: flex; gap: 6px;">
+                        <input type="text" id="newTextModelId" placeholder="标识(如 gpt-4o)" style="flex:1; padding:6px; border-radius:6px; border:1px solid var(--border-color);">
+                        <input type="text" id="newTextModelName" placeholder="显示名" style="flex:1; padding:6px; border-radius:6px; border:1px solid var(--border-color);">
+                        <button class="nav-btn" onclick="addModel('text')">添加</button>
+                    </div>
+                </div>
+                <div style="flex: 1; border: 1px solid var(--border-color); border-radius: 10px; padding: 12px;">
+                    <h4 style="margin: 0 0 10px 0;">🎨 图像生成模型</h4>
+                    <div id="imageModelList" style="margin-bottom: 10px; max-height: 200px; overflow-y: auto;"></div>
+                    <div style="display: flex; gap: 6px;">
+                        <input type="text" id="newImageModelId" placeholder="标识(如 mj-v6)" style="flex:1; padding:6px; border-radius:6px; border:1px solid var(--border-color);">
+                        <input type="text" id="newImageModelName" placeholder="显示名" style="flex:1; padding:6px; border-radius:6px; border:1px solid var(--border-color);">
+                        <button class="nav-btn" onclick="addModel('image')">添加</button>
+                    </div>
+                </div>
+            </div>
+            <p style="font-size: 0.8rem; color: var(--text-secondary); margin-top: 12px;">提示：前端用户切换 API 通道时，下拉框会精确呈现该通道下配置的模型列表。</p>
+        </div>
+
+        <div id="adminTab-logs" class="admin-tab-content" style="display: none;"><div style="max-height:400px; overflow-y:auto; border:1px solid var(--border-color); border-radius:10px;"><table style="width:100%; border-collapse: collapse; text-align: left; font-size: 0.85rem;"><thead style="background: var(--bg-hover); position: sticky; top: 0;"><tr><th style="padding: 10px; border-bottom: 1px solid var(--border-color); width: 140px;">时间</th><th style="padding: 10px; border-bottom: 1px solid var(--border-color); width: 100px;">操作人</th><th style="padding: 10px; border-bottom: 1px solid var(--border-color);">动作记录</th></tr></thead><tbody id="auditLogTableBody"></tbody></table></div></div>
+        <button class="modal-btn cancel-btn" onclick="closeAdminPanel()" style="width:100%; margin-top:15px;">关闭面板</button>
+    </div>
+</div>
+
+<div class="modal-overlay" id="quotaModal"><div class="modal-box" style="max-width:320px; text-align: center;"><h3 style="margin-top: 0;">设置生图额度</h3><input type="number" id="quotaInput" placeholder="输入整数 (如 1000)" style="width:100%; padding:12px; border-radius:10px; border:1px solid var(--border-color); box-sizing:border-box; margin-bottom:20px;"><div style="display:flex; gap:10px;"><button class="modal-btn cancel-btn" style="flex:1" onclick="closeQuotaModal()">取消</button><button class="modal-btn btn-confirm" style="flex:1" onclick="saveQuota()">保存</button></div></div></div>
+
+<div class="bulk-toolbar" id="bulkToolbar">
+    <div style="display:flex; align-items:center; gap:16px;">
+        <span id="bulkSelectCount" style="font-weight:bold;">已选择 0 项</span>
+        <button class="nav-btn" style="background: var(--bg-user-msg); color: white; border-color: var(--bg-user-msg);" onclick="executeBulkDownload()">⬇️ 批量下载</button>
+        <button class="nav-btn" id="bulkCategoryBtn" onclick="openBulkCategoryModal()">🗂️ 批量分类</button>
+        <button class="nav-btn" id="bulkDeleteBtn" style="color: var(--danger-color); border-color: var(--danger-color);" onclick="executeBulkDelete()">🗑️ 批量删除</button>
+    </div>
+    <button class="nav-btn cancel-btn" onclick="toggleBulkMode()">取消退出</button>
+</div>
+
+<div id="printArea" style="display: none;"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
