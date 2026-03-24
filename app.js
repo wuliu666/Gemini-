@@ -1,5 +1,4 @@
-// ⚡ 注意：这里改为了本地环回地址 127.0.0.1 进行本地测试！
-const API_BASE_URL = "http://127.0.0.1:5000"; 
+const API_BASE_URL = "http://124.223.40.104:5000"; // ★ 请将此处替换为您的实际 IP 和端口
 const HUB_ID = 'STORYBOARD_HUB'; 
 const IMAGE_SPLIT_ID = 'IMAGE_SPLIT_TOOL';
 const IMAGE_GEN_ID = 'IMAGE_GEN_TOOL'; 
@@ -18,7 +17,7 @@ let currentUploadedImageBase64 = null;
 let currentSelectedRatioText = '16:9';
 let currentSelectedResText = '高清 2K';
 
-let teamAssets = JSON.parse(localStorage.getItem('team_assets')) || [];
+let teamAssets = [];
 let personalAssets = []; 
 let currentAssetFilter = 'all';
 let currentLibraryMode = 'team'; 
@@ -40,6 +39,40 @@ let dynamicModels = JSON.parse(localStorage.getItem('sys_dynamic_models')) || {
 function addAuditLog(action, user = currentUserKey) { const time = new Date().toLocaleString('zh-CN', { hour12: false }); auditLogs.unshift({ time, user: user || 'System', action }); if(auditLogs.length > 100) auditLogs.pop(); localStorage.setItem('sys_audit_logs', JSON.stringify(auditLogs)); }
 function getUserUsage(key) { if(!userUsages[key]) userUsages[key] = { images: 0, limit: 1000 }; return userUsages[key]; }
 function incrementUsage(key) { let u = getUserUsage(key); u.images += 1; localStorage.setItem('sys_user_usages', JSON.stringify(userUsages)); }
+
+// ================= 云端素材同步函数 =================
+async function fetchTeamAssets() {
+    try {
+        const res = await fetch(`${API_BASE_URL}/api/team_assets`);
+        if(res.ok) {
+            teamAssets = await res.json();
+            localStorage.setItem('team_assets', JSON.stringify(teamAssets));
+        } else {
+            teamAssets = JSON.parse(localStorage.getItem('team_assets')) || [];
+        }
+    } catch(e) { 
+        teamAssets = JSON.parse(localStorage.getItem('team_assets')) || [];
+    }
+}
+
+async function syncTeamAssetsToCloud() {
+    try {
+        await fetch(`${API_BASE_URL}/api/team_assets`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(teamAssets)
+        });
+    } catch(e) { console.log("云端同步素材失败", e); }
+}
+
+// 全局提示渐入渐出飘字
+function showToast(msg) {
+    const div = document.createElement('div');
+    div.className = 'toast-msg';
+    div.innerText = msg;
+    document.body.appendChild(div);
+    setTimeout(() => { if (div.parentNode) div.remove(); }, 2500);
+}
 
 // 📱 手机端专属交互优化
 let isSidebarCollapsed = window.innerWidth <= 768; 
@@ -63,9 +96,22 @@ function toggleSidebar() {
 
 function init() {
     loadImageModelsToUI();
+    
+    // 自动回填上次登入的密钥（即便退出了也不会清空记忆）
+    const lastKey = localStorage.getItem('last_used_key');
+    if (lastKey) document.getElementById('secretKey').value = lastKey;
+
     const k = localStorage.getItem('user_secret_key');
-    if (k) { document.getElementById('secretKey').value = k; verifyKey(); } 
-    else { document.getElementById('chatList').innerHTML = ''; document.getElementById('chatBox').innerHTML = ''; document.getElementById('inputSection').style.display = 'none'; document.getElementById('headerEditIcon').style.display = 'none'; }
+    if (k) { 
+        document.getElementById('secretKey').value = k; 
+        verifyKey(); 
+    } else { 
+        document.getElementById('chatList').innerHTML = ''; document.getElementById('chatBox').innerHTML = ''; document.getElementById('inputSection').style.display = 'none'; document.getElementById('headerEditIcon').style.display = 'none'; 
+    }
+}
+
+function clearKeyInput() {
+    document.getElementById('secretKey').value = '';
 }
 
 function loadImageModelsToUI() {
@@ -101,8 +147,11 @@ async function verifyKey() {
         const res = await fetch(`${API_BASE_URL}/verify`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({password:p}) });
         const d = await res.json();
         if(res.ok) {
-            localStorage.setItem('user_secret_key', p); currentUserKey = p; isAdmin = d.is_admin;
+            localStorage.setItem('user_secret_key', p); 
+            localStorage.setItem('last_used_key', p); 
+            currentUserKey = p; isAdmin = d.is_admin;
             personalAssets = JSON.parse(localStorage.getItem('personal_assets_' + currentUserKey)) || [];
+            await fetchTeamAssets(); 
             chats = JSON.parse(localStorage.getItem('chats_' + currentUserKey)) || [];
             if (!chats.find(c => c.id === IMAGE_GEN_ID)) { chats.push({id: IMAGE_GEN_ID, title: "AI生图记录", messages: [], isImageGen: true}); saveChats(); }
             getUserUsage(p); localStorage.setItem('sys_user_usages', JSON.stringify(userUsages));
@@ -118,8 +167,8 @@ async function verifyKey() {
             document.getElementById('keySection').style.display = 'none'; document.getElementById('headerActions').style.display = 'flex';
             document.getElementById('adminBtn').style.display = isAdmin ? 'inline-block' : 'none'; document.getElementById('apiBtn').style.display = isAdmin ? 'inline-block' : 'none';
             addAuditLog('登录系统'); switchChat(HUB_ID);
-        } else { alert(d.error || "验证失败"); }
-    } catch(e) { alert("网络连接失败，请确保本地 python flask_app.py 已经运行！"); }
+        } else { showToast("请联系管理员！"); }
+    } catch(e) { showToast("请联系管理员！"); }
 }
 
 function syncWithCloud() {
@@ -160,7 +209,6 @@ function switchAdminTab(tabName) { document.querySelectorAll('.admin-tab-btn').f
 async function openAdminPanel() { document.getElementById('adminModal').classList.add('show'); switchAdminTab('keys'); }
 function closeAdminPanel() { document.getElementById('adminModal').classList.remove('show'); }
 
-// 📋 恢复的一键复制密钥功能
 function copyAdminKey(text, btn) { 
     navigator.clipboard.writeText(text).then(() => { 
         const original = btn.innerHTML; 
@@ -206,15 +254,7 @@ async function refreshKeyList() {
 }
 
 async function toggleKeyStatus(t) { const ak = localStorage.getItem('user_secret_key'); await fetch(`${API_BASE_URL}/admin/toggle_delete`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak, target_key:t}) }); addAuditLog(`更改了密钥状态: ${t}`); await refreshKeyList(); }
-
-async function hardDeleteKey(t) {
-    if(!confirm('🚨 危险操作：确定要【彻底物理删除】该密钥吗？一旦删除将无法恢复！')) return;
-    const ak = localStorage.getItem('user_secret_key');
-    await fetch(`${API_BASE_URL}/admin/hard_delete`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak, target_key:t}) });
-    addAuditLog(`彻底删除了密钥: ${t}`);
-    await refreshKeyList();
-}
-
+async function hardDeleteKey(t) { if(!confirm('🚨 危险操作：确定要【彻底物理删除】该密钥吗？一旦删除将无法恢复！')) return; const ak = localStorage.getItem('user_secret_key'); await fetch(`${API_BASE_URL}/admin/hard_delete`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak, target_key:t}) }); addAuditLog(`彻底删除了密钥: ${t}`); await refreshKeyList(); }
 async function generateNewKey() { const ak = localStorage.getItem('user_secret_key'); const n = document.getElementById('newKeyNote').value.trim(); if(!n) return alert("请输入备注"); await fetch(`${API_BASE_URL}/admin/create`, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({admin_key:ak, note:n}) }); document.getElementById('newKeyNote').value = ''; addAuditLog(`生成了新密钥，备注: ${n}`); await refreshKeyList(); }
 function openQuotaModal(key, currentLimit) { targetQuotaKey = key; document.getElementById('quotaInput').value = currentLimit; document.getElementById('quotaModal').classList.add('show'); }
 function closeQuotaModal() { document.getElementById('quotaModal').classList.remove('show'); targetQuotaKey = null; }
@@ -251,8 +291,8 @@ function renderAssetLibraryTool(mode) {
     const canUpload = isPersonal || isAdmin;
 
     let html = `<div style="max-width: 1000px; margin: 0 auto; width: 100%; padding: 30px; box-sizing: border-box; animation: pop 0.3s ease;"><div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; border-bottom: 1px solid var(--border-color); padding-bottom: 16px;"><div><h2 style="margin: 0 0 6px 0;">${titleText}</h2><div style="font-size: 0.85rem; color: var(--text-secondary);">${descText}</div></div><div style="display:flex; gap:10px;">`;
-    if(!isBulkMode) html += `<button onclick="toggleBulkMode()" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-color); padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;">☑️ 批量操作</button>`;
-    if (canUpload && !isBulkMode) html += `<button onclick="document.getElementById('batchAssetUpload').click()" style="background: var(--bg-user-msg); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;">＋ 添加新素材</button>`;
+    if(!isBulkMode) html += `<button onclick="toggleBulkMode()" style="background: var(--bg-input); color: var(--text-main); border: 1px solid var(--border-color); padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;" title="开启批量下载/分类模式">☑️ 批量操作</button>`;
+    if (canUpload && !isBulkMode) html += `<button onclick="document.getElementById('batchAssetUpload').click()" style="background: var(--bg-user-msg); color: white; border: none; padding: 10px 20px; border-radius: 8px; cursor: pointer; font-weight: 600;" title="本地上传新图片至云端">＋ 添加新素材</button>`;
     html += `</div></div><div style="display: flex; gap: 10px; margin-bottom: 24px;"><button class="nav-btn ${currentAssetFilter === 'all' ? 'active' : ''}" style="padding: 8px 16px;" onclick="filterAssets('all')">全部展示</button><button class="nav-btn ${currentAssetFilter === 'character' ? 'active' : ''}" style="padding: 8px 16px;" onclick="filterAssets('character')">👤 角色设定</button><button class="nav-btn ${currentAssetFilter === 'scene' ? 'active' : ''}" style="padding: 8px 16px;" onclick="filterAssets('scene')">🏞️ 场景概念</button></div><div id="assetGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 20px;"></div></div>`;
     
     const toolbar = document.getElementById('bulkToolbar');
@@ -267,9 +307,61 @@ async function handleBatchAssetUpload(input) {
     if (!input.files || input.files.length === 0) return;
     const files = Array.from(input.files); let upCount = 0;
     for (let file of files) { await new Promise((resolve) => { const reader = new FileReader(); reader.onload = (e) => { const newAsset = { id: 'asset_' + Date.now() + '_' + Math.random().toString(36).substr(2, 5), title: file.name.substring(0, file.name.lastIndexOf('.')) || file.name, type: 'character', image: e.target.result, prompt: '' }; if (currentLibraryMode === 'team') teamAssets.unshift(newAsset); else personalAssets.unshift(newAsset); upCount++; resolve(); }; reader.readAsDataURL(file); }); }
-    if (currentLibraryMode === 'team') localStorage.setItem('team_assets', JSON.stringify(teamAssets)); else localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets)); addAuditLog(`上传了 ${upCount} 个素材`); input.value = ''; document.getElementById('chatBox').innerHTML = renderAssetLibraryTool(currentLibraryMode); renderAssetGrid();
+    
+    if (currentLibraryMode === 'team') {
+        localStorage.setItem('team_assets', JSON.stringify(teamAssets)); 
+        await syncTeamAssetsToCloud();
+    } else {
+        localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets));
+    }
+    
+    addAuditLog(`上传了 ${upCount} 个素材`); input.value = ''; document.getElementById('chatBox').innerHTML = renderAssetLibraryTool(currentLibraryMode); renderAssetGrid();
 }
+
 function filterAssets(type) { currentAssetFilter = type; if(currentChatId === TEAM_ASSET_ID || currentChatId === PERSONAL_ASSET_ID) { document.getElementById('chatBox').innerHTML = renderAssetLibraryTool(currentLibraryMode); renderAssetGrid(); } }
+
+// 🌊 水印绘制统一函数
+function drawTeamWatermark(canvas, ctx) {
+    ctx.save();
+    ctx.font = `bold ${Math.max(20, canvas.width / 10)}px sans-serif`;
+    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.shadowColor = "rgba(0,0,0,0.8)";
+    ctx.shadowBlur = 6;
+    ctx.translate(canvas.width / 2, canvas.height / 2);
+    ctx.rotate(-Math.PI / 8);
+    ctx.fillText("九雨团队", 0, 0);
+    ctx.restore();
+}
+
+// 🔍 打开全屏高清大图（附带水印和防盗安全预览）
+function openFullImage(id) {
+    if(isBulkMode) { toggleSelectAsset(id); return; } 
+    const sourceArray = currentLibraryMode === 'team' ? teamAssets : personalAssets;
+    const asset = sourceArray.find(a => a.id === id);
+    if(!asset) return;
+    
+    const modal = document.getElementById('imageViewerModal');
+    const canvas = document.getElementById('fullViewCanvas');
+    const ctx = canvas.getContext('2d');
+    
+    const img = new Image();
+    img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        ctx.drawImage(img, 0, 0);
+        if (currentLibraryMode === 'team') {
+            drawTeamWatermark(canvas, ctx);
+        }
+        modal.classList.add('show');
+    };
+    img.src = asset.image;
+}
+function closeImageViewer() {
+    document.getElementById('imageViewerModal').classList.remove('show');
+}
+
 function renderAssetGrid() {
     const grid = document.getElementById('assetGrid'); if(!grid) return; grid.innerHTML = '';
     const sourceArray = currentLibraryMode === 'team' ? teamAssets : personalAssets; const filtered = currentAssetFilter === 'all' ? sourceArray : sourceArray.filter(a => a.type === currentAssetFilter);
@@ -279,11 +371,30 @@ function renderAssetGrid() {
     filtered.forEach(asset => {
         const isSelected = selectedAssetIds.has(asset.id); let cardHtml = `<div class="asset-card ${isSelected ? 'selected' : ''}">`;
         if (isBulkMode) { cardHtml += `<div class="bulk-overlay" onclick="toggleSelectAsset('${asset.id}')"></div><div class="checkbox-icon">✓</div>`; }
-        cardHtml += `<img src="${asset.image}" style="width: 100%; height: 240px; object-fit: cover; border-bottom: 1px solid var(--border-color);"><div style="padding: 16px;"><div style="font-weight: bold; margin-bottom: 6px; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${asset.title}">${asset.title}</div><div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px; display: inline-block; background: var(--bg-container); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color);">${asset.type === 'character' ? '👤 角色设定' : '🏞️ 场景概念'}</div><div style="display: flex; gap: 8px;"><button class="nav-btn" style="flex: 1; padding: 8px; font-size: 0.85rem;" onclick="copyAssetPrompt('${asset.id}')">📋 词+Seed</button><button class="nav-btn" style="flex: 1; padding: 8px; font-size: 0.85rem; border-color: var(--shen-color); color: var(--shen-color);" onclick="useAssetInGen('${asset.id}')">🎨 去创作</button></div>`;
-        if (canManage && !isBulkMode) { cardHtml += `<div style="display: flex; gap: 8px; margin-top: 8px;"><button class="nav-btn" style="flex: 1; padding: 6px; font-size: 0.85rem;" onclick="editAsset('${asset.id}')">✏️ 编辑</button><button class="nav-btn" style="flex: 1; padding: 6px; font-size: 0.85rem; border: none; color: var(--danger-color); background: transparent; opacity: 0.7;" onclick="deleteAsset('${asset.id}')" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'">🗑️ 删除</button></div>`; }
+        // 🔒 使用 Canvas 渲染缩略图片，屏蔽原生拖拽和右键检查获取 src
+        cardHtml += `<div class="canvas-container" title="点击查看安全无码大图" style="width: 100%; height: 240px; background: var(--bg-container); cursor: pointer; display: flex; justify-content: center; align-items: center;" onclick="openFullImage('${asset.id}')" oncontextmenu="return false;" ondragstart="return false;"><canvas id="canvas_${asset.id}" style="max-width: 100%; max-height: 100%; pointer-events: none;"></canvas></div><div style="padding: 16px;"><div style="font-weight: bold; margin-bottom: 6px; font-size: 1.05rem; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;" title="${asset.title}">${asset.title}</div><div style="font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 12px; display: inline-block; background: var(--bg-container); padding: 4px 8px; border-radius: 6px; border: 1px solid var(--border-color);">${asset.type === 'character' ? '👤 角色设定' : '🏞️ 场景概念'}</div><div style="display: flex; gap: 8px;"><button class="nav-btn" style="flex: 1; padding: 8px; font-size: 0.85rem;" onclick="copyAssetPrompt('${asset.id}')" title="复制该素材的关联提示词和种子值">📋 词+Seed</button><button class="nav-btn" style="flex: 1; padding: 8px; font-size: 0.85rem; border-color: var(--shen-color); color: var(--shen-color);" onclick="useAssetInGen('${asset.id}')" title="直接带上此图片前往 AI 生图功能">🎨 去创作</button></div>`;
+        if (canManage && !isBulkMode) { cardHtml += `<div style="display: flex; gap: 8px; margin-top: 8px;"><button class="nav-btn" style="flex: 1; padding: 6px; font-size: 0.85rem;" onclick="editAsset('${asset.id}')" title="修改名称、分类和提示词">✏️ 编辑</button><button class="nav-btn" style="flex: 1; padding: 6px; font-size: 0.85rem; border: none; color: var(--danger-color); background: transparent; opacity: 0.7;" onclick="deleteAsset('${asset.id}')" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.7'" title="永久删除素材内容">🗑️ 删除</button></div>`; }
         cardHtml += `</div></div>`; grid.innerHTML += cardHtml;
     });
+
+    // 等 DOM 创建后立即在各 Canvas 上进行自适应渲染与水印叠加
+    filtered.forEach(asset => {
+        const canvas = document.getElementById(`canvas_${asset.id}`);
+        if(!canvas) return;
+        const ctx = canvas.getContext('2d');
+        const img = new Image();
+        img.onload = () => {
+            canvas.width = img.width;
+            canvas.height = img.height;
+            ctx.drawImage(img, 0, 0);
+            if (currentLibraryMode === 'team') {
+                drawTeamWatermark(canvas, ctx);
+            }
+        };
+        img.src = asset.image;
+    });
 }
+
 function toggleBulkMode() { isBulkMode = !isBulkMode; selectedAssetIds.clear(); document.getElementById('chatBox').innerHTML = renderAssetLibraryTool(currentLibraryMode); renderAssetGrid(); }
 function toggleSelectAsset(id) { if (selectedAssetIds.has(id)) selectedAssetIds.delete(id); else selectedAssetIds.add(id); document.getElementById('bulkSelectCount').innerText = `已选择 ${selectedAssetIds.size} 项`; renderAssetGrid(); }
 
@@ -295,25 +406,53 @@ async function executeBulkDownload() {
 }
 function executeBulkDelete() {
     if(selectedAssetIds.size === 0) return alert("请先选择要删除的素材！");
-    openConfirmModal(() => {
+    openConfirmModal(async () => {
         const c = selectedAssetIds.size;
-        if (currentLibraryMode === 'team') { teamAssets = teamAssets.filter(a => !selectedAssetIds.has(a.id)); localStorage.setItem('team_assets', JSON.stringify(teamAssets)); } else { personalAssets = personalAssets.filter(a => !selectedAssetIds.has(a.id)); localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets)); }
+        if (currentLibraryMode === 'team') { 
+            teamAssets = teamAssets.filter(a => !selectedAssetIds.has(a.id)); 
+            localStorage.setItem('team_assets', JSON.stringify(teamAssets)); 
+            await syncTeamAssetsToCloud();
+        } else { 
+            personalAssets = personalAssets.filter(a => !selectedAssetIds.has(a.id)); 
+            localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets)); 
+        }
         addAuditLog(`批量删除了 ${c} 个素材`); toggleBulkMode(); 
     });
 }
 function openBulkCategoryModal() { if(selectedAssetIds.size === 0) return alert("请先选择素材！"); document.getElementById('bulkCategoryModal').classList.add('show'); }
 function closeBulkCategoryModal() { document.getElementById('bulkCategoryModal').classList.remove('show'); }
-function confirmBulkCategory() {
+async function confirmBulkCategory() {
     const newType = document.getElementById('bulkCategorySelect').value; const sourceArray = currentLibraryMode === 'team' ? teamAssets : personalAssets;
     sourceArray.forEach(asset => { if(selectedAssetIds.has(asset.id)) { asset.type = newType; } });
-    if (currentLibraryMode === 'team') localStorage.setItem('team_assets', JSON.stringify(teamAssets)); else localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets));
+    if (currentLibraryMode === 'team') {
+        localStorage.setItem('team_assets', JSON.stringify(teamAssets));
+        await syncTeamAssetsToCloud();
+    } else {
+        localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets));
+    }
     addAuditLog(`批量修改了 ${selectedAssetIds.size} 个素材分类`); closeBulkCategoryModal(); toggleBulkMode();
 }
 
 function editAsset(id) { editingAssetId = id; const sourceArray = currentLibraryMode === 'team' ? teamAssets : personalAssets; const asset = sourceArray.find(a => a.id === id); if(!asset) return; document.getElementById('editAssetTitle').value = asset.title; document.getElementById('editAssetType').value = asset.type; document.getElementById('editAssetPrompt').value = asset.prompt || ''; document.getElementById('editAssetModal').classList.add('show'); }
-function saveAssetEdit() { const sourceArray = currentLibraryMode === 'team' ? teamAssets : personalAssets; const asset = sourceArray.find(a => a.id === editingAssetId); if(!asset) return; asset.title = document.getElementById('editAssetTitle').value.trim(); asset.type = document.getElementById('editAssetType').value; asset.prompt = document.getElementById('editAssetPrompt').value.trim(); if (currentLibraryMode === 'team') localStorage.setItem('team_assets', JSON.stringify(teamAssets)); else localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets)); closeEditAssetModal(); document.getElementById('chatBox').innerHTML = renderAssetLibraryTool(currentLibraryMode); renderAssetGrid(); }
+async function saveAssetEdit() { const sourceArray = currentLibraryMode === 'team' ? teamAssets : personalAssets; const asset = sourceArray.find(a => a.id === editingAssetId); if(!asset) return; asset.title = document.getElementById('editAssetTitle').value.trim(); asset.type = document.getElementById('editAssetType').value; asset.prompt = document.getElementById('editAssetPrompt').value.trim(); 
+    if (currentLibraryMode === 'team') {
+        localStorage.setItem('team_assets', JSON.stringify(teamAssets));
+        await syncTeamAssetsToCloud();
+    } else {
+        localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets)); 
+    }
+    closeEditAssetModal(); document.getElementById('chatBox').innerHTML = renderAssetLibraryTool(currentLibraryMode); renderAssetGrid(); }
 function closeEditAssetModal() { document.getElementById('editAssetModal').classList.remove('show'); }
-function deleteAsset(id) { openConfirmModal(() => { if (currentLibraryMode === 'team') { teamAssets = teamAssets.filter(a => a.id !== id); localStorage.setItem('team_assets', JSON.stringify(teamAssets)); } else { personalAssets = personalAssets.filter(a => a.id !== id); localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets)); } addAuditLog(`删除了素材`); document.getElementById('chatBox').innerHTML = renderAssetLibraryTool(currentLibraryMode); renderAssetGrid(); }); }
+function deleteAsset(id) { openConfirmModal(async () => { 
+    if (currentLibraryMode === 'team') { 
+        teamAssets = teamAssets.filter(a => a.id !== id); 
+        localStorage.setItem('team_assets', JSON.stringify(teamAssets)); 
+        await syncTeamAssetsToCloud();
+    } else { 
+        personalAssets = personalAssets.filter(a => a.id !== id); 
+        localStorage.setItem('personal_assets_' + currentUserKey, JSON.stringify(personalAssets)); 
+    } 
+    addAuditLog(`删除了素材`); document.getElementById('chatBox').innerHTML = renderAssetLibraryTool(currentLibraryMode); renderAssetGrid(); }); }
 function copyAssetPrompt(id) { const sourceArray = currentLibraryMode === 'team' ? teamAssets : personalAssets; const asset = sourceArray.find(a => a.id === id); if (asset && asset.prompt) { navigator.clipboard.writeText(asset.prompt).then(() => { alert("提示词与 Seed 复制成功！"); }); } else { alert("该素材暂未填写提示词。"); } }
 
 function useAssetInGen(assetId) { 
@@ -443,7 +582,7 @@ function renderSidebar() {
     
     display.sort((a,b)=>(b.isPinned - a.isPinned) || (b.id - a.id)).forEach(c => {
         const div = document.createElement('div'); div.className = `chat-item ${c.id === currentChatId ? 'active' : ''}`; div.onclick = () => switchChat(c.id);
-        div.innerHTML = `<span class="chat-title" title="${c.title}">${c.isPinned?'📌 ':''}💬 ${c.title}</span><div class="chat-actions"><button class="action-btn" onclick="togglePin('${c.id}', event)">📍</button><button class="action-btn" onclick="toggleFav('${c.id}', event)">${c.isFavorite?'🌟':'⭐'}</button><button class="action-btn" onclick="openRenameModal('${c.id}', event)">✏️</button><button class="action-btn" onclick="deleteChat('${c.id}', event)">🗑️</button></div>`;
+        div.innerHTML = `<span class="chat-title" title="${c.title}">${c.isPinned?'📌 ':''}💬 ${c.title}</span><div class="chat-actions"><button class="action-btn" onclick="togglePin('${c.id}', event)" title="${c.isPinned ? '取消置顶' : '置顶'}">📍</button><button class="action-btn" onclick="toggleFav('${c.id}', event)" title="${c.isFavorite ? '取消收藏' : '收藏'}">${c.isFavorite?'🌟':'⭐'}</button><button class="action-btn" onclick="openRenameModal('${c.id}', event)" title="重命名">✏️</button><button class="action-btn" onclick="deleteChat('${c.id}', event)" title="删除">🗑️</button></div>`;
         list.appendChild(div);
     });
 }
@@ -459,7 +598,7 @@ function renderMessages() {
         if (m.role === 'user' && m.attachedImage) { const imgWrap = document.createElement('div'); imgWrap.style.marginTop = '10px'; imgWrap.innerHTML = `<img src="${m.attachedImage}" style="max-width: 120px; border-radius: 8px; border: 2px solid rgba(255,255,255,0.3);">`; contentDiv.appendChild(imgWrap); }
         if (m.type === 'image_gallery' && m.images) {
             const galleryDiv = document.createElement('div'); galleryDiv.className = 'gallery-container';
-            m.images.forEach((imgBase64, imgIndex) => { const item = document.createElement('div'); item.className = 'gallery-item'; item.innerHTML = `<img src="${imgBase64}"><button class="dl-btn" onclick="downloadSingleImage('${imgBase64}', ${imgIndex})">⬇️</button>`; galleryDiv.appendChild(item); });
+            m.images.forEach((imgBase64, imgIndex) => { const item = document.createElement('div'); item.className = 'gallery-item'; item.innerHTML = `<img src="${imgBase64}"><button class="dl-btn" onclick="downloadSingleImage('${imgBase64}', ${imgIndex})" title="下载这张图片">⬇️</button>`; galleryDiv.appendChild(item); });
             contentDiv.appendChild(galleryDiv);
         }
         
