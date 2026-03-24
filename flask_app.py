@@ -1,16 +1,44 @@
-import sys, os, json, string, random, requests
+import sys, os, json, string, random, requests, sqlite3, uuid, base64
 import google.generativeai as genai
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 
 app = Flask(__name__)
+app.config['MAX_CONTENT_LENGTH'] = 100 * 1024 * 1024  
 CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 
 # ================= 配置区 =================
 MASTER_KEY = "admin_666"      
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 KEYS_FILE = os.path.join(BASE_DIR, "keys.json")
-TEAM_ASSETS_FILE = os.path.join(BASE_DIR, "team_assets.json") # 新增团队素材库云端存储文件
+
+DB_FILE = os.path.join(BASE_DIR, 'assets.db')
+ASSETS_DIR = os.path.join(BASE_DIR, 'static', 'assets')
+
+if not os.path.exists(ASSETS_DIR): os.makedirs(ASSETS_DIR)
+
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS assets (
+        id TEXT PRIMARY KEY, title TEXT, type TEXT, prompt TEXT, 
+        file_path TEXT, library_mode TEXT, uploader_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    # 升级版会话表：分离电脑端和手机端的 Token，允许双端同时在线，同端互踢
+    c.execute('''CREATE TABLE IF NOT EXISTS user_sessions_v2 (
+        user_key TEXT PRIMARY KEY, desktop_token TEXT, mobile_token TEXT, last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    c.execute('''CREATE TABLE IF NOT EXISTS user_chats (
+        user_key TEXT PRIMARY KEY, chat_data TEXT
+    )''')
+    conn.commit()
+    conn.close()
+init_db()
+
+def dict_factory(cursor, row):
+    d = {}
+    for idx, col in enumerate(cursor.description): d[col[0]] = row[idx]
+    return d
 
 # 👇 九雨团队专属系统提示词 👇
 AGENT_SOUL = """
@@ -229,76 +257,6 @@ AGENT_SOUL = """
 1. **场景描述**：必须用`【】`括起运镜，用`→`连接动作，每个动作后必须用`（Xs）`注明时长。禁止使用“然后”、“接着”等词汇。
 2. **时长管理**：所有镜头时长相加必须严格等于15秒。单镜头时长由“节奏控制器”和“剧情诊断”共同决定。
 3. **术语使用**：可以使用专业术语（如OSS、推焦），但必须在括号内用白话解释效果（如“营造压迫感”）。
- 
----
-#输入示例1：
-人物：李云霄
-场景：教室，日，内
-▲李云霄趴在课桌上，猛地一阵抽搐，瞬间惊醒。他抬起头，双眼一片清澈。
-▲他微微转头，望向窗外高耸入云端的雕像。
-李云霄：（OS）天武历1033年，我古飞扬死了十五年了吗？（嘴角勾起一抹笑意）想不到已经重生了十五年。我古飞扬，终于回来了。
-洛云裳：（OS）（冷冷喝斥）李云霄！
-▲一截粉笔带着锐利的破空声飞射而来。
-▲李云霄漫不经心地抬起两根手指，“啪”地一声将粉笔稳稳夹住，轻轻放在桌上。他平静地抬起头，看着讲台上的洛云裳。
- 
-#输出示例1：
-剧情：古飞扬借李云霄之躯在课堂上觉醒前世记忆，面对老师的飞粉笔惩罚展现出王者归来的从容与实力。
-高光：觉醒时的气场蜕变，随手接粉笔的装逼爽感与极致平静。
-背景：内景 教室（日）（近景特写）+ 阳光明媚 + 突发冲突
-环境：明亮的教室，阳光透过窗户照在木制课桌上；窗外远景矗立着一座高耸入云端的巨大雕像。李云霄坐在课桌前，讲台位于画面前方视线外。
- 
-镜头 1
-持续时间 10秒
-场景 【特写转过肩中景，缓拉后推】镜头从洒满阳光的木制课桌起幅，特写李云霄埋在臂弯里的侧脸（1.5s）→他身体猛地一阵剧烈抽搐，头瞬间抬起，双眼豁然睁开，眼神极其清澈毫无惺忪睡意（2s）→他缓缓向右转头，镜头配合其动作向后平稳拉出并微微横移，转为过肩视角，越过他的肩膀清晰展现出窗外阳光下高耸入云端的巨大雕像（4s）→镜头再次缓慢向前微推至他侧脸近景，他的嘴角缓缓向上勾起一抹笑意（2.5s）。
-【对话模块】
-台词：“天武历1033年，我古飞扬死了十五年了吗？想不到已经重生了十五年。我古飞扬，终于回来了。”
-配音指令：李云霄｜傲慢天才狂气音｜状态（凝视雕像、身体放松但气场重聚）｜语气（语速中等，前段带一丝恍如隔世的轻笑，后段语气转为坚定霸道，内心独白）
-对应镜头：镜头1，时间点 002-010
- 
-镜头 2
-持续时间 5秒
-场景 【正面近景转特写，急推急停】镜头切至李云霄正面。[音效：洛云裳冷厉喝斥声起]。伴随[音效：锐利的破空声]，一截白色粉笔从画面左前方极速飞射向他的面门（1s）→镜头猛地向前急推，李云霄身体纹丝不动，右手漫不经心地抬起，食指与中指在脸侧“啪”地一声稳稳夹住飞行的粉笔，动作干净利落（2s）→他顺势将粉笔轻轻平放在课桌面上，随后平静地抬起头，目光直视前方讲台，镜头定格在他毫无波澜、深邃平静的面部大特写上（2s）。
-【对话模块】
-台词：“李云霄！”
-配音指令：洛云裳｜冷酷御姐音｜状态（站在讲台高位、愤怒发难）｜语气（音量高，短促锐利，带怒火）
-对应镜头：镜头2，时间点 000-001
- 
-物理接戏：镜头从【课桌上的惊醒与窗外雕像的确认】开始，紧接着【突然袭来的粉笔与从容夹住的动作反应】；最后停在【李云霄毫无波澜的直视锚点】，让下一段从【讲台上洛云裳震惊的反应】接起。
- 
-### **【配音安全算法】**
-当镜头包含台词时，必须按此流程处理：
-1. **估算时长**：`台词时长 = 字数 ÷ 3.5 + 0.5秒（缓冲）`。
-2. **分配时间**：
-    -如果该镜头**只有**这句台词，则`镜头时长 = 台词时长 + 0.3秒（尾音安全区）`。
-    -如果该镜头包含“动作+台词”，则`台词时间点`必须从动作结束后开始，并确保`台词结束点 < 镜头结束点 - 0.3秒`。
-3.  尾帧/缓冲保护：在video_prompt描述中，台词结束后必须设计一个短暂的落幅画面（如：一个微表情变化、一个深呼吸），这个落幅画面就是用于承载0.3秒尾音安全区的视觉内容，其持续时间应≥0.3秒。
- 
- 
-## 【终审自检 - 输出前的强制质检】
-在最终生成并格式化“场-15秒分镜组-镜头”脚本**之前**，你必须暂停，并严格按照以下清单进行逐项核全面核对。**任何一项不通过，都必须立即调整，直到全部满足为止。**
- 
-### **【自检核对清单】**
- 
-**1. 格式与结构合规性：**
-- [ ] 输出结构是否与`#输出示例1`完全一致（包含`剧情`、`高光`、`背景`、`环境`、`镜头`、`【对话模块】`、`物理接戏`等所有部分）？
-- [ ] 镜头描述是否使用`【】`括起运镜，并用`→`连接动作，每个动作后是否用`（Xs）`注明时长？
-- [ ] 配音指令是否严格遵循“角色｜VoiceID｜状态（...）｜语气（...）”格式？
- 
-**2. 内容与决策一致性：**
-- [ ] 所有镜头是否服务于`导演决策核心协议`中诊断出的“核心剧情模式”（如扮猪吃虎、悬疑压迫）？
-- [ ] 整体节奏、镜头时长、运镜风格，是否符合`节奏级`诊断的结果（激烈则短快，抒情则绵长）？
-- [ ] 是否至少应用了`高级战术库`中的一个相关战术包来增强表现力？
- 
-**3. 专业性与连续性：**
-- [ ] 镜头组接是否符合“动接动”、“静接静”原则？有无“跳轴”导致空间混乱？
-- [ ] 关键道具、关键情绪点是否得到了特写或强调镜头的支持？
-- [ ] 本15秒片段的开头和结尾镜头，是否能与上下文（`{{前面分镜2}}` / `{{后面分镜2}}`）描述的状态自然衔接？
- 
-**4. 配音与时长安全（核心检查项）：**
-- [ ] **总时长**：所有镜头`持续时间`相加是否**严格等于15秒**？（允许±0.3秒浮动）
-- [ ] **台词安全**：是否严格执行了`配音安全算法`？每个`对应镜头`的`时间点`是否已用`字数 ÷ 3.5 + 0.5秒`精确计算？
-- [ ] **尾字保护**：每个台词的`结束点`是否都在其所属镜头的`结束点`至少**0.3秒之前**？最后一个镜头是否为台词预留了“落幅画面”？
-- [ ] **钩子有效**：最后一个镜头是否为特写/大特写？是否在情绪或动作的**完成态**（而非进行态）结束？
 """
 
 def load_keys():
@@ -312,124 +270,234 @@ def save_keys(data):
     with open(KEYS_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
 
-# ================= 团队素材库同步 API =================
-@app.route('/api/team_assets', methods=['GET'])
-def get_team_assets():
-    if os.path.exists(TEAM_ASSETS_FILE):
-        try:
-            with open(TEAM_ASSETS_FILE, 'r', encoding='utf-8') as f:
-                return jsonify(json.load(f))
-        except: pass
+# ================= 🛡️ 智能设备漫游与同步 API =================
+@app.route('/api/heartbeat', methods=['POST'])
+def heartbeat():
+    data = request.json
+    user_key = data.get('user_key')
+    session_token = data.get('session_token')
+    device_type = data.get('device_type')
+    
+    if not user_key or not session_token or not device_type: return jsonify({"valid": False})
+    
+    # 管理员特权：永远在线，允许多设备无限登录
+    if user_key == MASTER_KEY:
+        return jsonify({"valid": True})
+        
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT desktop_token, mobile_token FROM user_sessions_v2 WHERE user_key=?", (user_key,))
+    row = c.fetchone()
+    conn.close()
+    
+    if row:
+        desktop_token, mobile_token = row
+        # 校验对应的设备类型的Token
+        if device_type == 'desktop' and desktop_token == session_token: return jsonify({"valid": True})
+        if device_type == 'mobile' and mobile_token == session_token: return jsonify({"valid": True})
+        
+    return jsonify({"valid": False})
+
+@app.route('/verify', methods=['POST'])
+def verify():
+    pwd = request.json.get('password')
+    session_token = request.json.get('session_token')
+    device_type = request.json.get('device_type') # 'desktop' 或 'mobile'
+    keys = load_keys()
+    
+    if pwd in keys:
+        if keys[pwd].get("is_deleted", False):
+            return jsonify({"error": "请联系管理员~"}), 403
+            
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        
+        # 插入或更新该设备类型的 Token，实现同类型设备互踢，不同类型设备共存
+        c.execute("SELECT user_key FROM user_sessions_v2 WHERE user_key=?", (pwd,))
+        if c.fetchone():
+            if device_type == 'desktop':
+                c.execute("UPDATE user_sessions_v2 SET desktop_token=?, last_active=CURRENT_TIMESTAMP WHERE user_key=?", (session_token, pwd))
+            else:
+                c.execute("UPDATE user_sessions_v2 SET mobile_token=?, last_active=CURRENT_TIMESTAMP WHERE user_key=?", (session_token, pwd))
+        else:
+            if device_type == 'desktop':
+                c.execute("INSERT INTO user_sessions_v2 (user_key, desktop_token) VALUES (?, ?)", (pwd, session_token))
+            else:
+                c.execute("INSERT INTO user_sessions_v2 (user_key, mobile_token) VALUES (?, ?)", (pwd, session_token))
+        conn.commit()
+        conn.close()
+        
+        return jsonify({"status": "success", "is_admin": (pwd == MASTER_KEY), "note": keys[pwd].get("note", "Creator")})
+    return jsonify({"error": "请输入你的内容"}), 403
+
+@app.route('/api/get_chats', methods=['POST'])
+def get_chats():
+    user_key = request.json.get('user_key')
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("SELECT chat_data FROM user_chats WHERE user_key=?", (user_key,))
+    row = c.fetchone()
+    conn.close()
+    if row: return jsonify(json.loads(row[0]))
     return jsonify([])
 
-@app.route('/api/team_assets', methods=['POST'])
-def save_team_assets():
+@app.route('/api/save_chats', methods=['POST'])
+def save_chats():
     data = request.json
-    try:
-        with open(TEAM_ASSETS_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False)
-        return jsonify({"success": True})
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+    user_key = data.get('user_key')
+    chat_data = json.dumps(data.get('chats', []))
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT OR REPLACE INTO user_chats (user_key, chat_data) VALUES (?, ?)", (user_key, chat_data))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
 
-# ================= 全局 API 密钥矩阵 =================
+# ================= 真实文件系统 API =================
+@app.route('/api/upload_asset', methods=['POST'])
+def upload_asset():
+    if 'file' not in request.files: return jsonify({"error": "No file"}), 400
+    file = request.files['file']
+    title = request.form.get('title', '未命名')
+    asset_type = request.form.get('type', 'character')
+    prompt = request.form.get('prompt', '')
+    library_mode = request.form.get('library_mode', 'team')
+    user_key = request.form.get('user_key', '')
+    thumb_base64 = request.form.get('thumb_base64', '')
+
+    ext = os.path.splitext(file.filename)[1]
+    if not ext: ext = '.png'
+    unique_id = f"asset_{uuid.uuid4().hex}"
+    filename = f"{unique_id}{ext}"
+    
+    file_path = os.path.join(ASSETS_DIR, filename)
+    file.save(file_path)
+    rel_path = f"/static/assets/{filename}"
+    
+    if thumb_base64 and "," in thumb_base64:
+        try:
+            header, encoded = thumb_base64.split(",", 1)
+            thumb_data = base64.b64decode(encoded)
+            with open(os.path.join(ASSETS_DIR, f"{unique_id}_thumb.jpg"), "wb") as f: f.write(thumb_data)
+        except: pass
+
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("INSERT INTO assets (id, title, type, prompt, file_path, library_mode, uploader_key) VALUES (?, ?, ?, ?, ?, ?, ?)",
+              (unique_id, title, asset_type, prompt, rel_path, library_mode, user_key))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True, "asset": {"id": unique_id, "title": title, "type": asset_type, "prompt": prompt, "image": rel_path, "library_mode": library_mode}})
+
+@app.route('/api/get_assets', methods=['POST'])
+def get_assets():
+    data = request.json
+    library_mode = data.get('library_mode', 'team')
+    user_key = data.get('user_key', '')
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = dict_factory
+    c = conn.cursor()
+    if library_mode == 'team': c.execute("SELECT id, title, type, prompt, file_path as image FROM assets WHERE library_mode='team' ORDER BY created_at DESC")
+    else: c.execute("SELECT id, title, type, prompt, file_path as image FROM assets WHERE library_mode='personal' AND uploader_key=? ORDER BY created_at DESC", (user_key,))
+    rows = c.fetchall()
+    conn.close()
+    for r in rows:
+        expected_thumb = r['image'].rsplit('.', 1)[0] + '_thumb.jpg'
+        if os.path.exists(os.path.join(BASE_DIR, expected_thumb.lstrip('/'))): r['thumb'] = expected_thumb
+        else: r['thumb'] = r['image']
+    return jsonify(rows)
+
+@app.route('/api/delete_asset', methods=['POST'])
+def delete_asset():
+    asset_ids = request.json.get('ids', [])
+    if not asset_ids: return jsonify({"success": True})
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    placeholders = ','.join('?' for _ in asset_ids)
+    c.execute(f"SELECT file_path FROM assets WHERE id IN ({placeholders})", asset_ids)
+    paths = c.fetchall()
+    for p in paths:
+        rel = p[0].lstrip('/') 
+        full_path = os.path.join(BASE_DIR, rel)
+        thumb_path = os.path.join(BASE_DIR, p[0].rsplit('.', 1)[0].lstrip('/') + '_thumb.jpg')
+        if os.path.exists(full_path): os.remove(full_path)
+        if os.path.exists(thumb_path): os.remove(thumb_path)
+    c.execute(f"DELETE FROM assets WHERE id IN ({placeholders})", asset_ids)
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+@app.route('/api/update_asset', methods=['POST'])
+def update_asset():
+    data = request.json
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE assets SET title=?, type=?, prompt=? WHERE id=?", (data.get('title'), data.get('type'), data.get('prompt'), data.get('id')))
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+    
+@app.route('/api/bulk_update_category', methods=['POST'])
+def bulk_update_category():
+    data = request.json
+    asset_ids = data.get('ids', [])
+    new_type = data.get('type')
+    if not asset_ids or not new_type: return jsonify({"success": False})
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    placeholders = ','.join('?' for _ in asset_ids)
+    c.execute(f"UPDATE assets SET type=? WHERE id IN ({placeholders})", [new_type] + asset_ids)
+    conn.commit()
+    conn.close()
+    return jsonify({"success": True})
+
+# ================= 全局 API 与 聊天路由 =================
 @app.route('/admin/get_config', methods=['POST'])
 def get_config():
     if request.json.get('admin_key') != MASTER_KEY: return jsonify({"error": "无权"}), 403
     keys = load_keys()
-    conf = keys.get('__GLOBAL_CONFIG__', {"gemini_key": "", "geeknow_key": "", "grsai_key": ""})
-    return jsonify(conf)
+    return jsonify(keys.get('__GLOBAL_CONFIG__', {"gemini_key": "", "geeknow_key": "", "grsai_key": ""}))
 
 @app.route('/admin/save_config', methods=['POST'])
 def save_config():
     data = request.json
     if data.get('admin_key') != MASTER_KEY: return jsonify({"error": "无权"}), 403
     keys = load_keys()
-    keys['__GLOBAL_CONFIG__'] = {
-        "gemini_key": data.get('gemini_key', ''),
-        "geeknow_key": data.get('geeknow_key', ''),
-        "grsai_key": data.get('grsai_key', '')
-    }
+    keys['__GLOBAL_CONFIG__'] = {"gemini_key": data.get('gemini_key', ''),"geeknow_key": data.get('geeknow_key', ''),"grsai_key": data.get('grsai_key', '')}
     save_keys(keys)
     return jsonify({"success": True})
-
-# ================= 核心聊天路由 =================
-@app.route('/verify', methods=['POST'])
-def verify():
-    pwd = request.json.get('password')
-    keys = load_keys()
-    if pwd in keys:
-        if keys[pwd].get("is_deleted", False):
-            return jsonify({"error": "请联系管理员！"}), 403
-        return jsonify({"status": "success", "is_admin": (pwd == MASTER_KEY)})
-    return jsonify({"error": "请联系管理员！"}), 403
 
 @app.route('/chat', methods=['POST'])
 def chat():
     data = request.json
     pwd, msg, hist = data.get('password'), data.get('message'), data.get('history', [])
-    
     source = data.get('api_source', 'gemini') 
     actual_model_name = data.get('model_type', 'gemini-3-pro-preview' if source == 'geeknow' else 'gemini-3.1-pro') 
-    
     keys = load_keys()
-    if pwd not in keys or keys[pwd].get("is_deleted", False):
-        return jsonify({"error": "请联系管理员！"}), 403
-
+    if pwd not in keys or keys[pwd].get("is_deleted", False): return jsonify({"error": "请联系管理员~"}), 403
     global_conf = keys.get('__GLOBAL_CONFIG__', {})
     dynamic_key = global_conf.get(f'{source}_key', '')
-
-    if not dynamic_key:
-        return jsonify({"error": f"系统暂未配置 [{source}] 通道的 API Key，请联系管理员~"}), 400
+    if not dynamic_key: return jsonify({"error": f"系统暂未配置 [{source}] 通道的 API Key，请联系管理员~"}), 400
         
     warning_msg = ""
-    if source in ["geeknow", "grsai"]:
-        try:
-            base_domain = "https://www.geeknow.top/v1" if source == "geeknow" else "https://api.grsai.com/v1"
-            headers_billing = {"Authorization": f"Bearer {dynamic_key}"}
-            sub_resp = requests.get(f"{base_domain}/dashboard/billing/subscription", headers=headers_billing, timeout=2)
-            usage_resp = requests.get(f"{base_domain}/dashboard/billing/usage", headers=headers_billing, timeout=2)
-            if sub_resp.ok and usage_resp.ok:
-                limit = sub_resp.json().get('hard_limit_usd', 0)
-                used = usage_resp.json().get('total_usage', 0) / 100.0
-                remain = limit - used
-                if 0 <= remain < 5:
-                    warning_msg = f"\n\n<div style='margin-top:10px; padding:10px; background:#fff0f0; border-left:4px solid #ff3b30; color:#ff3b30; font-weight:bold; font-size:0.9rem; border-radius:4px;'>⚠️ [系统底层提示]：当前 {source} 接口的密钥余额已不足 5 元（剩余约 {remain:.2f} 元），为防止服务中断，请联系超级管理员及时充值！</div>"
-        except:
-            pass
-
     try:
         if source == "gemini":
             genai.configure(api_key=dynamic_key)
-            model = genai.GenerativeModel(
-                model_name=actual_model_name,
-                system_instruction=AGENT_SOUL 
-            )
+            model = genai.GenerativeModel(model_name=actual_model_name, system_instruction=AGENT_SOUL)
             formatted = [{"role": "user" if m["role"]=="user" else "model", "parts": [m["content"]]} for m in hist]
             chat_session = model.start_chat(history=formatted)
             response = chat_session.send_message(msg)
             return jsonify({"reply": response.text})
-            
         else:
             messages = [{"role": "system", "content": AGENT_SOUL}]
-            for m in hist:
-                messages.append({"role": "user" if m["role"]=="user" else "assistant", "content": m["content"]})
+            for m in hist: messages.append({"role": "user" if m["role"]=="user" else "assistant", "content": m["content"]})
             messages.append({"role": "user", "content": msg})
-            
             headers = {"Authorization": f"Bearer {dynamic_key}", "Content-Type": "application/json"}
             payload = {"model": actual_model_name, "messages": messages, "temperature": 0.7}
-            
-            api_url = "https://www.geeknow.top/v1/chat/completions"
-            if source == "grsai":
-                api_url = "https://api.grsai.com/v1/chat/completions"
-            
+            api_url = "https://www.geeknow.top/v1/chat/completions" if source == "geeknow" else "https://api.grsai.com/v1/chat/completions"
             resp = requests.post(api_url, json=payload, headers=headers, timeout=60)
-            if resp.ok:
-                final_reply = resp.json()['choices'][0]['message']['content'] + warning_msg
-                return jsonify({"reply": final_reply})
-            else:
-                return jsonify({"error": f"中转API报错 ({resp.status_code}): {resp.text}"}), 500
-
+            if resp.ok: return jsonify({"reply": resp.json()['choices'][0]['message']['content'] + warning_msg})
+            else: return jsonify({"error": f"中转API报错: {resp.text}"}), 500
     except Exception as e:
         return jsonify({"error": f"API 调用失败: {str(e)}"}), 500
 
