@@ -24,7 +24,6 @@ def init_db():
         id TEXT PRIMARY KEY, title TEXT, type TEXT, prompt TEXT, 
         file_path TEXT, library_mode TEXT, uploader_key TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
-    # 升级版会话表：分离电脑端和手机端的 Token，允许双端同时在线，同端互踢
     c.execute('''CREATE TABLE IF NOT EXISTS user_sessions_v2 (
         user_key TEXT PRIMARY KEY, desktop_token TEXT, mobile_token TEXT, last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
@@ -279,10 +278,7 @@ def heartbeat():
     device_type = data.get('device_type')
     
     if not user_key or not session_token or not device_type: return jsonify({"valid": False})
-    
-    # 管理员特权：永远在线，允许多设备无限登录
-    if user_key == MASTER_KEY:
-        return jsonify({"valid": True})
+    if user_key == MASTER_KEY: return jsonify({"valid": True})
         
     conn = sqlite3.connect(DB_FILE)
     c = conn.cursor()
@@ -292,7 +288,6 @@ def heartbeat():
     
     if row:
         desktop_token, mobile_token = row
-        # 校验对应的设备类型的Token
         if device_type == 'desktop' and desktop_token == session_token: return jsonify({"valid": True})
         if device_type == 'mobile' and mobile_token == session_token: return jsonify({"valid": True})
         
@@ -302,7 +297,7 @@ def heartbeat():
 def verify():
     pwd = request.json.get('password')
     session_token = request.json.get('session_token')
-    device_type = request.json.get('device_type') # 'desktop' 或 'mobile'
+    device_type = request.json.get('device_type')
     keys = load_keys()
     
     if pwd in keys:
@@ -311,24 +306,49 @@ def verify():
             
         conn = sqlite3.connect(DB_FILE)
         c = conn.cursor()
-        
-        # 插入或更新该设备类型的 Token，实现同类型设备互踢，不同类型设备共存
         c.execute("SELECT user_key FROM user_sessions_v2 WHERE user_key=?", (pwd,))
         if c.fetchone():
-            if device_type == 'desktop':
-                c.execute("UPDATE user_sessions_v2 SET desktop_token=?, last_active=CURRENT_TIMESTAMP WHERE user_key=?", (session_token, pwd))
-            else:
-                c.execute("UPDATE user_sessions_v2 SET mobile_token=?, last_active=CURRENT_TIMESTAMP WHERE user_key=?", (session_token, pwd))
+            if device_type == 'desktop': c.execute("UPDATE user_sessions_v2 SET desktop_token=?, last_active=CURRENT_TIMESTAMP WHERE user_key=?", (session_token, pwd))
+            else: c.execute("UPDATE user_sessions_v2 SET mobile_token=?, last_active=CURRENT_TIMESTAMP WHERE user_key=?", (session_token, pwd))
         else:
-            if device_type == 'desktop':
-                c.execute("INSERT INTO user_sessions_v2 (user_key, desktop_token) VALUES (?, ?)", (pwd, session_token))
-            else:
-                c.execute("INSERT INTO user_sessions_v2 (user_key, mobile_token) VALUES (?, ?)", (pwd, session_token))
+            if device_type == 'desktop': c.execute("INSERT INTO user_sessions_v2 (user_key, desktop_token) VALUES (?, ?)", (pwd, session_token))
+            else: c.execute("INSERT INTO user_sessions_v2 (user_key, mobile_token) VALUES (?, ?)", (pwd, session_token))
         conn.commit()
         conn.close()
         
         return jsonify({"status": "success", "is_admin": (pwd == MASTER_KEY), "note": keys[pwd].get("note", "Creator")})
     return jsonify({"error": "请输入你的内容"}), 403
+
+# 🚀 【新增】用户自行修改密钥，并自动转移所有云端数据！
+@app.route('/api/change_key', methods=['POST'])
+def change_key():
+    data = request.json
+    old_key = data.get('old_key')
+    new_key = data.get('new_key')
+    
+    if not old_key or not new_key or len(new_key) < 3: return jsonify({"error": "新密钥格式不合法（至少3位）"}), 400
+    if old_key == MASTER_KEY: return jsonify({"error": "超级管理员密钥禁止修改！"}), 403
+        
+    keys = load_keys()
+    if old_key not in keys: return jsonify({"error": "原密钥不存在或已被删除"}), 403
+    if new_key in keys: return jsonify({"error": "该新密钥已被其他人占用，请换一个名称"}), 400
+        
+    # 1. 更新 JSON 控制面板数据
+    user_data = keys.pop(old_key)
+    keys[new_key] = user_data
+    save_keys(keys)
+    
+    # 2. 数据库无缝搬家 (素材、聊天记录、会话Token全部转移到新密钥)
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute("UPDATE assets SET uploader_key=? WHERE uploader_key=?", (new_key, old_key))
+    c.execute("UPDATE user_sessions_v2 SET user_key=? WHERE user_key=?", (new_key, old_key))
+    c.execute("UPDATE user_chats SET user_key=? WHERE user_key=?", (new_key, old_key))
+    conn.commit()
+    conn.close()
+    
+    return jsonify({"success": True})
+
 
 @app.route('/api/get_chats', methods=['POST'])
 def get_chats():
