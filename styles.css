@@ -89,8 +89,16 @@ textarea { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid var(--
 .hub-item-actions button { background: var(--bg-container); border: 1px solid var(--border-color); cursor: pointer; font-size: 0.9rem; color: var(--text-secondary); transition: 0.2s; padding: 6px; border-radius: 6px; }
 .hub-item-actions button:hover { color: var(--text-main); border-color: var(--text-secondary); }
 
+/* =========== 彻底隐藏原生密码眼睛图标 =========== */
+input[type="password"]::-ms-reveal,
+input[type="password"]::-ms-clear,
+input[type="password"]::-webkit-contacts-auto-fill-button,
+input[type="password"]::-webkit-credentials-auto-fill-button {
+    display: none !important;
+}
+
 .key-section { padding:20px; display:flex; justify-content:center; gap:10px; border-bottom: 1px solid var(--border-color); }
-.key-section input { padding:10px; border-radius:10px; border:1px solid var(--border-color); width:200px; background: var(--bg-input); color: var(--text-main); outline: none; }
+.key-section input { padding:10px; border-radius:10px; border:1px solid var(--border-color); width:250px; background: var(--bg-input); color: var(--text-main); outline: none; }
 .modal-overlay { display: none; position: fixed; inset: 0; background: var(--overlay-bg); z-index: 1000; backdrop-filter: blur(8px); justify-content: center; align-items: center; }
 .modal-overlay.show { display: flex; }
 .modal-box { background: var(--bg-container); border-radius: 24px; padding: 32px; width: 90%; max-width: 480px; box-shadow: 0 20px 50px rgba(0,0,0,0.3); animation: pop 0.3s ease; max-height: 90vh; overflow-y: auto; }
@@ -160,6 +168,25 @@ textarea { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid var(--
 .checkbox-icon { position: absolute; top: 12px; left: 12px; width: 24px; height: 24px; border-radius: 50%; background: rgba(0,0,0,0.5); border: 2px solid white; display: flex; align-items: center; justify-content: center; color: transparent; transition: 0.2s; z-index: 11; pointer-events: none;}
 .asset-card.selected .checkbox-icon { background: var(--bg-user-msg); border-color: var(--bg-user-msg); color: white; }
 
+/* 防止右键保存的防盗图画布外层 */
+.canvas-container { user-select: none; -webkit-user-select: none; }
+
+/* ================== 中间飘字提示框动画 ================== */
+.toast-msg {
+    position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(0,0,0,0.8); color: white; padding: 14px 28px; border-radius: 12px;
+    z-index: 10000; pointer-events: none; font-size: 1.1rem; font-weight: bold;
+    animation: centerFadeInOut 2.5s ease forwards; text-align: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+    opacity: 0;
+}
+@keyframes centerFadeInOut {
+    0% { opacity: 0; transform: translate(-50%, -50%) scale(0.95); }
+    15% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    85% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+    100% { opacity: 0; transform: translate(-50%, -50%) scale(1.05); }
+}
+
 @media print {
     body * { visibility: hidden; }
     #printArea, #printArea * { visibility: visible; }
@@ -178,6 +205,13 @@ textarea { flex: 1; padding: 12px; border-radius: 12px; border: 1px solid var(--
     .header { padding: 12px 15px; }
     .header-main-text { font-size: 1rem; max-width: 130px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; display: inline-block; vertical-align: bottom; }
     .nav-btn { padding: 4px 8px; font-size: 0.75rem; }
+    
+    /* 密钥登录模块在手机端的显示优化 */
+    .key-section { flex-direction: column; align-items: stretch; padding: 20px 15px; }
+    .key-input-wrapper { width: 100%; display: flex !important; }
+    .key-input-wrapper input { width: 100%; box-sizing: border-box; }
+    .key-section .btn-confirm { width: 100%; margin-top: 10px; }
+    
     .chat-box { padding: 15px 10px; }
     .message { max-width: 95%; padding: 12px 14px; font-size: 0.95rem; }
     .input-section { padding: 12px; gap: 10px; flex-direction: column; align-items: stretch !important; }
