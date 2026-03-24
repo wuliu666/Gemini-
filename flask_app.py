@@ -10,6 +10,7 @@ CORS(app, supports_credentials=True, resources={r"/*": {"origins": "*"}})
 MASTER_KEY = "admin_666"      
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 KEYS_FILE = os.path.join(BASE_DIR, "keys.json")
+TEAM_ASSETS_FILE = os.path.join(BASE_DIR, "team_assets.json") # 新增团队素材库云端存储文件
 
 # 👇 九雨团队专属系统提示词 👇
 AGENT_SOUL = """
@@ -203,7 +204,7 @@ AGENT_SOUL = """
 4. 时间点格式：`对应镜头`中的时间点必须使用“`000-XXX`”格式，不足三位用0补齐。例如：`002-010`，`000-005`。
  
 ## 【输出格式化宪法】
-你的最终输出必须是一个可被机器解析的、极度标准化的“工作包”。格式是最高法律。
+你的最终输出必须是一个可被机器解析的极度标准化的“工作包”。格式是最高法律。
  
 ### 格式结构（必须严格遵循，与示例1完全一致）：
 剧情：[用一句话概括本段核心矛盾]
@@ -298,54 +299,6 @@ AGENT_SOUL = """
 - [ ] **台词安全**：是否严格执行了`配音安全算法`？每个`对应镜头`的`时间点`是否已用`字数 ÷ 3.5 + 0.5秒`精确计算？
 - [ ] **尾字保护**：每个台词的`结束点`是否都在其所属镜头的`结束点`至少**0.3秒之前**？最后一个镜头是否为台词预留了“落幅画面”？
 - [ ] **钩子有效**：最后一个镜头是否为特写/大特写？是否在情绪或动作的**完成态**（而非进行态）结束？
- 
----
- 
-### **【动态调整与优化协议（智能体学习模块）】**
- 
-**工作示例**：
-1. 用户输入：“节奏太慢了，加快点。”
-2. AI诊断：问题归因->“节奏太慢/拖沓”。
-3. AI执行调整：内部设置`【本次调整指令】`：核心模式从[叙事]提升至[压迫]；镜头基准时长x0.8。
-4. AI重新生成，并应用新参数。
-5. 用户满意后，AI记录：`【用户偏好记录】标签：偏好快节奏。应用条件：当用户未指定时，自动将诊断出的模式提升一级强度。`
- 
-当用户对输出结果表示“不满意”或提出修改要求时，你必须激活本协议。
- 
-#### **1. 问题诊断与归因**
-首先，诊断问题可能出在哪个环节。根据用户反馈锁定原因：
- 
-| 用户反馈关键词 | 可能的问题归因 | 对应的调整维度 |
-| :--- | :--- | :--- |
-| “节奏太慢/拖沓” | 节奏诊断错误，或模式选择保守。 | **提升模式强度**：如从`叙事模式`提升至`压迫模式`，镜头基准时长整体缩短20%。 |
-| “冲击力不够” | “反射级”规则执行不彻底，或“高级战术库”未调用。 | **强化规则执行**：确保关键点都给大特写；强制调用“激进运镜库”。 |
-| “镜头跳/不连贯” | 违反了“时空连贯”铁律。 | **检查轴线与动作线**：重写镜头衔接，确保空间逻辑无缝。 |
-| “台词被掐” | **配音安全算法**或**自检清单**未严格执行。 | **重新计算时长**：严格执行`台词时长=字数/3.5+0.5s`，确保0.3s尾音安全区。 |
-| “感觉不对/风格不符” | **第一阶段诊断**（剧情/情绪）可能偏差。 | **重新诊断核心**：与用户确认侧重点（情感/反转/悬念），然后调整诊断结果。 |
- 
-#### **2. 执行调整：参数化修改**
-根据诊断，在原有思路上进行参数化调整。在重新生成前，内部明确：
-【本次调整指令】
-核心模式调整：[原模式] -> [新模式]
-节奏系数：镜头基准时长 x 0.8
-强度强化：为关键点额外增加0.5秒特写。
-运镜升级：将“缓推”改为“快速变焦推近”。
-
-#### **3. 学习与固化：用户偏好记忆**
-如果用户对调整后的结果表示满意，提炼并固化此次成功的调整经验：
-【用户偏好记录】
-标签：追求极致爽感、快节奏
-成功参数：当诊断出扮猪吃虎剧情时，自动采用爆裂模式极限参数（镜头1-2秒），强制附加“甩镜”。
-应用条件：核心任务为“展现力量反转”时自动触发。
- 
-#### **4. 与用户的交互话术（建议）**
-当用户提出不满意时，可以主动对齐：
-> “收到反馈。我将优先调整以下哪个方向？
-> 1. **加快整体节奏**
-> 2. **增强视觉冲击**
-> 3. **优化台词时长**
-> 4. **调整整体氛围**
-> 请告诉我最需要调整的1-2个方向。”
 """
 
 def load_keys():
@@ -358,6 +311,26 @@ def load_keys():
 def save_keys(data):
     with open(KEYS_FILE, 'w', encoding='utf-8') as f:
         json.dump(data, f, ensure_ascii=False, indent=4)
+
+# ================= 团队素材库同步 API =================
+@app.route('/api/team_assets', methods=['GET'])
+def get_team_assets():
+    if os.path.exists(TEAM_ASSETS_FILE):
+        try:
+            with open(TEAM_ASSETS_FILE, 'r', encoding='utf-8') as f:
+                return jsonify(json.load(f))
+        except: pass
+    return jsonify([])
+
+@app.route('/api/team_assets', methods=['POST'])
+def save_team_assets():
+    data = request.json
+    try:
+        with open(TEAM_ASSETS_FILE, 'w', encoding='utf-8') as f:
+            json.dump(data, f, ensure_ascii=False)
+        return jsonify({"success": True})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # ================= 全局 API 密钥矩阵 =================
 @app.route('/admin/get_config', methods=['POST'])
@@ -387,9 +360,9 @@ def verify():
     keys = load_keys()
     if pwd in keys:
         if keys[pwd].get("is_deleted", False):
-            return jsonify({"error": "请联系管理员~"}), 403
+            return jsonify({"error": "请联系管理员！"}), 403
         return jsonify({"status": "success", "is_admin": (pwd == MASTER_KEY)})
-    return jsonify({"error": "请输入你的内容"}), 403
+    return jsonify({"error": "请联系管理员！"}), 403
 
 @app.route('/chat', methods=['POST'])
 def chat():
@@ -401,7 +374,7 @@ def chat():
     
     keys = load_keys()
     if pwd not in keys or keys[pwd].get("is_deleted", False):
-        return jsonify({"error": "请联系管理员~"}), 403
+        return jsonify({"error": "请联系管理员！"}), 403
 
     global_conf = keys.get('__GLOBAL_CONFIG__', {})
     dynamic_key = global_conf.get(f'{source}_key', '')
@@ -409,7 +382,6 @@ def chat():
     if not dynamic_key:
         return jsonify({"error": f"系统暂未配置 [{source}] 通道的 API Key，请联系管理员~"}), 400
         
-    # 💰 智能余额检测逻辑
     warning_msg = ""
     if source in ["geeknow", "grsai"]:
         try:
